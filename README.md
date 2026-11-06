@@ -2,7 +2,7 @@
 
 Researcher profiles and lab pages that read public publication records from ATProto.
 
-First draft: Bryce Hackel's profile, N2D Haptic Glove and Skill Tests publications, and a demo ARC Lab page. **Skill Tests is not affiliated with ARC Lab** and appears only on the researcher profile and main publication list. The lab page is labeled as a demo, not an official lab website or complete roster. Talks and posters are placeholders for now.
+First draft: Bryce Hackel's profile, N2D Haptic Glove and Skill Tests publications, and a demo ARC Lab page. **Skill Tests is not affiliated with ARC Lab** and appears only on the researcher profile and main publication list. The lab page is labeled as a demo, not an official lab website or complete roster. Talks and posters are not implemented yet.
 
 ## Run it
 
@@ -51,7 +51,7 @@ python3 scripts/publish_publication.py doi:10.1145/3770762.3772518 --handle bhac
 
 The script prompts for an app password with input hidden, authenticates against the account's current PDS, and creates a public publication record. It does not save credentials or print tokens, and deletes the temporary session on completion. Use `--dry-run` to inspect the record without signing in. A stable record key makes repeat runs safe: an existing record is reported and left unchanged.
 
-The PDS record contains enough metadata to display a new paper even if it isn't in the site's imported catalog. Refreshing the site reads it immediately without redeployment. Imported entries remain available if a PDS is unavailable, and are explicitly labeled as imports. Matching arXiv ids or DOIs are deduplicated. Records are self-published claims, not independent authorship verification.
+The PDS record contains enough metadata to display a new paper even if it isn't in the site's imported catalog. Refreshing the site reads it immediately without redeployment. Imported entries remain available if a PDS is unavailable; the page status reports this. Matching arXiv ids or DOIs are deduplicated. Records are self-published claims, not independent authorship verification.
 
 ## Link another account
 

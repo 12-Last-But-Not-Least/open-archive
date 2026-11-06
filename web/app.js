@@ -121,12 +121,11 @@ function renderPublications(papers, target) {
     const date = new Date(paper.publishedAt).toLocaleDateString("en-US", {year: "numeric", month: "short", day: "numeric", timeZone: "UTC"});
     const citation = paper.arxivId ? "arXiv:" + paper.arxivId : paper.venue || (paper.doi ? "doi:" + paper.doi : "");
     const meta = element("p", date + (citation ? " · " + citation : ""), "meta");
-    meta.append(element("span", paper.source === "atproto" ? "ATProto record" : paper.source === "arxiv" ? "arXiv import" : "Publication import", "source-label"));
     article.append(meta);
     const links = element("p", null, "links");
-    links.append(link("Read paper ↗", paper.url));
-    if (paper.projectURL && safeURL(paper.projectURL)) links.append(link("Project ↗", paper.projectURL));
-    if (paper.recordURL && safeURL(paper.recordURL)) links.append(link("Public record ↗", paper.recordURL));
+    links.append(link("Paper", paper.url));
+    if (paper.projectURL && safeURL(paper.projectURL)) links.append(link("Project", paper.projectURL));
+    if (paper.recordURL && safeURL(paper.recordURL)) links.append(link("ATProto record", paper.recordURL));
     article.append(links);
     if (paper.abstract) {
       const details = element("details");
@@ -150,17 +149,17 @@ async function start() {
       if (refreshing) return;
       refreshing = true;
       button.disabled = true;
-      status.textContent = "Reading public research records…";
+      status.textContent = "Loading…";
       try {
         const results = await Promise.allSettled(researchers.map(researcher => readPublications(researcher, config.collection)));
         const live = results.flatMap(result => result.status === "fulfilled" ? result.value : []);
         const failures = results.filter(result => result.status === "rejected").length;
         const papers = filterPublications(mergePublications(imported, live), page, id);
         renderPublications(papers, target);
-        if (!researchers.length) status.textContent = "Showing imported publications. No ATProto account linked yet.";
-        else if (failures) status.textContent = "Some public records could not be loaded. Showing available records and imported publications. Try refreshing.";
-        else if (!live.length) status.textContent = "Account connected · no publication records published yet. Showing imported publications.";
-        else status.textContent = "Read from ATProto just now · " + live.length + " publication record" + (live.length === 1 ? "" : "s") + ".";
+        if (!researchers.length) status.textContent = "Imported publications. No account linked.";
+        else if (failures) status.textContent = "Some accounts unavailable. Showing available publications.";
+        else if (!live.length) status.textContent = "No ATProto records yet. Showing imported publications.";
+        else status.textContent = "Updated from ATProto.";
       } finally {
         button.disabled = false;
         refreshing = false;

@@ -54,15 +54,14 @@ def publications(papers):
     result = []
     for paper in sorted(papers, key=lambda paper: paper["publishedAt"], reverse=True):
         date = datetime.fromisoformat(paper["publishedAt"].replace("Z", "+00:00")).strftime("%b %d, %Y")
-        project = (' <a href="' + text(paper["projectURL"]) + '">Project ↗</a>') if paper.get("projectURL") else ""
+        project = (' <a href="' + text(paper["projectURL"]) + '">Project</a>') if paper.get("projectURL") else ""
         citation = "arXiv:" + paper["arxivId"] if paper.get("arxivId") else paper.get("venue", "doi:" + paper.get("doi", ""))
-        source = "arXiv import" if paper.get("source") == "arxiv" else "Publication import"
         abstract = '<details><summary>Abstract</summary><p>' + text(paper["abstract"]) + '</p></details>' if paper.get("abstract") else ""
         result.append(
             '<article class="publication"><h3><a href="' + text(paper["url"]) + '">' + text(paper["title"]) + '</a></h3>'
             + '<p class="authors">' + text(", ".join(paper["authors"])) + '</p>'
-            + '<p class="meta">' + date + ' · ' + text(citation) + '<span class="source-label">' + source + '</span></p>'
-            + '<p class="links"><a href="' + text(paper["url"]) + '">Read paper ↗</a>' + project + '</p>'
+            + '<p class="meta">' + date + ' · ' + text(citation) + '</p>'
+            + '<p class="links"><a href="' + text(paper["url"]) + '">Paper</a>' + project + '</p>'
             + abstract + '</article>'
         )
     return "\n".join(result) or '<p class="empty">No publications added yet.</p>'
@@ -112,7 +111,7 @@ def main():
             "INSTITUTION": text(lab["institution"]), "ABOUT": text(lab["about"]), "MEMBER_COUNT": len(members),
             "MEMBERS": directory(members, "researchers", "../../"),
             "LAB_LABEL": "Lab page · demo" if lab.get("demo") else "Lab page",
-            "DEMO_NOTE": '<p class="note">A demo page using Bryce’s research. This is not the lab’s official website or complete roster.</p>' if lab.get("demo") else "",
+            "DEMO_NOTE": '<p class="note">Demo page. Not the lab’s official website.</p>' if lab.get("demo") else "",
             "PUBLICATIONS": publications([paper for paper in papers if lab["id"] in paper["labIds"]]),
         })
     print(f"Built {1 + len(config['researchers']) + len(config['labs'])} pages in {output}")
