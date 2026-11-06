@@ -49,6 +49,12 @@ export function mergePublications(imported, live) {
   return [...papers.values()].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
 }
 
+export function unclaimedPublications(imported, researchers) {
+  const unclaimed = new Set(researchers.filter(researcher => !researcher.did).map(researcher => researcher.id));
+  return imported.map(paper => ({...paper, researcherIds: paper.researcherIds.filter(id => unclaimed.has(id))}))
+    .filter(paper => paper.researcherIds.length);
+}
+
 export function filterPublications(papers, page, id) {
   if (page === "researcher") return papers.filter(paper => paper.researcherIds.includes(id));
   if (page === "lab") return papers.filter(paper => paper.labIds.includes(id));
@@ -143,6 +149,7 @@ async function start() {
   const target = document.querySelector("#publication-list");
   try {
     const [config, imported] = await Promise.all([getJSON(root + "data/site.json"), getJSON(root + "data/papers.json")]);
+    const unclaimed = filterPublications(unclaimedPublications(imported, config.researchers), page, id);
     const researchers = config.researchers.filter(researcher => researcher.did && (page !== "researcher" || researcher.id === id));
     let refreshing = false;
     async function refresh() {
@@ -154,11 +161,11 @@ async function start() {
         const results = await Promise.allSettled(researchers.map(researcher => readPublications(researcher, config.collection)));
         const live = results.flatMap(result => result.status === "fulfilled" ? result.value : []);
         const failures = results.filter(result => result.status === "rejected").length;
-        const papers = filterPublications(mergePublications(imported, live), page, id);
+        const papers = mergePublications(unclaimed, filterPublications(live, page, id));
         renderPublications(papers, target);
         if (!researchers.length) status.textContent = "Imported publications. No account linked.";
         else if (failures) status.textContent = "Some accounts unavailable. Showing available publications.";
-        else if (!live.length) status.textContent = "No ATProto records yet. Showing imported publications.";
+        else if (!live.length) status.textContent = "No ATProto publications added yet.";
         else status.textContent = "Updated from ATProto.";
       } finally {
         button.disabled = false;
@@ -168,7 +175,8 @@ async function start() {
     button.addEventListener("click", refresh);
     await refresh();
   } catch {
-    status.textContent = "Live updates unavailable. Showing the publications included with this page.";
+    target.replaceChildren();
+    status.textContent = "Publications unavailable. Reload the page to try again.";
     button.disabled = true;
   }
 }

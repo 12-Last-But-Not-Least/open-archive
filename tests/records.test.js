@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {safeURL, normalizeRecord, mergePublications, filterPublications, readPublications} from "../web/app.js";
+import {safeURL, normalizeRecord, mergePublications, filterPublications, readPublications, unclaimedPublications} from "../web/app.js";
 
 const researcher = {id: "bryce-hackel", did: "did:plc:rqu4asr46qcalfx5b2mxqzvx"};
 const collection = "io.github.12-last-but-not-least.publication";
@@ -52,8 +52,21 @@ test("the reader follows pagination and resolves the current PDS from a DID", as
   assert.ok(calls[2].includes("cursor=next"));
 });
 
-test("a PDS outage rejects cleanly so the UI can retain imported publications", async () => {
+test("a PDS outage rejects cleanly", async () => {
   await assert.rejects(readPublications(researcher, collection, async () => {throw new Error("offline");}), /offline/);
+});
+
+test("imported suggestions never reappear on a claimed profile, including an empty PDS", () => {
+  const imported = normalizeRecord(record(), researcher, collection, pds);
+  assert.deepEqual(unclaimedPublications([imported], [researcher]), []);
+  assert.deepEqual(mergePublications(unclaimedPublications([imported], [researcher]), []), []);
+});
+
+test("a shared import remains only on the unclaimed coauthor's profile", () => {
+  const imported = {...normalizeRecord(record(), researcher, collection, pds), researcherIds: [researcher.id, "jay"]};
+  const papers = unclaimedPublications([imported], [researcher, {id: "jay", did: ""}]);
+  assert.deepEqual(papers[0].researcherIds, ["jay"]);
+  assert.equal(filterPublications(papers, "researcher", researcher.id).length, 0);
 });
 
 test("the reader rejects a mismatched DID document", async () => {

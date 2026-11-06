@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Account · Open Archive</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script type="module" src="/assets/account.js"></script>
+</head>
+<body>
+  <header><nav aria-label="Main"><a href="/">Open Archive</a> | <a href="/researchers/">Researchers</a> | <a href="/labs/">Labs</a> | <a href="/publications/">Publications</a> | <a href="/account/" aria-current="page">Account</a></nav></header>
+  <main>
+    <h1>Account</h1>
+    <p id="status" role="status">Loading…</p>
+    <form id="login" hidden>
+      <label for="handle">ATProto handle</label>
+      <input id="handle" name="handle" placeholder="bhackel.bsky.social" autocomplete="username" required>
+      <button type="submit">Sign in</button>
+    </form>
+    <div id="account" hidden>
+      <p id="identity"></p>
+      <p id="profile"></p>
+      <button id="logout" type="button">Sign out</button>
+      <section id="claim-section" hidden>
+        <h2>Claim a researcher profile</h2>
+        <p id="claim-status"></p>
+        <form id="claim">
+          <label for="researcher">Your profile</label>
+          <select id="researcher" required></select>
+          <button type="submit">Request profile</button>
+        </form>
+      </section>
+      <section>
+        <div class="section-heading"><h2>Your publications</h2> <button id="refresh" type="button">Refresh</button></div>
+        <p id="publications-status" role="status"></p>
+        <div id="own-papers"></div>
+      </section>
+      <section>
+        <h2>Add papers</h2>
+        <form id="search">
+          <label for="author">Author name</label>
+          <input id="author" name="author" required maxlength="120">
+          <button type="submit">Find papers on arXiv</button>
+        </form>
+        <form id="import">
+          <div id="suggestions"></div>
+          <p>Selected papers will be added publicly to your ATProto account.</p>
+          <button id="add" type="submit" disabled>Add selected papers</button>
+        </form>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

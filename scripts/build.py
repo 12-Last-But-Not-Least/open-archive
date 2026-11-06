@@ -1,5 +1,6 @@
 """Generate a static website from readable HTML templates and JSON data."""
 
+import argparse
 import re
 import shutil
 from datetime import datetime
@@ -8,6 +9,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from common import ROOT, read_json
+
+ACCOUNT_LINK = ""
 
 
 def text(value):
@@ -69,6 +72,7 @@ def publications(papers):
 
 def render(template, destination, values):
     content = (ROOT / "web" / template).read_text(encoding="utf-8")
+    content = content.replace("{{ACCOUNT_LINK}}", ACCOUNT_LINK)
     for key, value in values.items():
         content = content.replace("{{" + key + "}}", str(value))
     if re.search(r"\{\{[A-Z_]+\}\}", content):
@@ -78,8 +82,23 @@ def render(template, destination, values):
 
 
 def main():
+    global ACCOUNT_LINK
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--with-account", action="store_true", help="Include the local FastAPI account page in navigation")
+    args = parser.parse_args()
+    if args.with_account:
+        ACCOUNT_LINK = ' | <a href="/account/">Account</a>'
     config, papers = read_json(ROOT / "data/site.json"), read_json(ROOT / "data/papers.json")
     validate(config, papers)
+    # Claimed profiles are rendered from the PDS in the browser. Imported
+    # suggestions must not resurrect deleted records, even before JS loads.
+    unclaimed = {r["id"] for r in config["researchers"] if not r.get("did")}
+    papers = [{**p, "researcherIds": [id for id in p["researcherIds"] if id in unclaimed]} for p in papers]
+    papers = [p for p in papers if p["researcherIds"]]
+    if args.with_account:
+        # Local claim approvals live in SQLite and can change without a rebuild.
+        # Render from the runtime configuration, never from stale HTML imports.
+        papers = []
     output = ROOT / "dist"
     # Only this script's generated output is removed on a rebuild.
     if output.exists():

@@ -14,6 +14,11 @@ p { margin: 8px 0; }
 .section-heading h1, .section-heading h2 { display: inline; margin-right: 12px; }
 button { padding: 3px 8px; border: 1px solid #000; border-radius: 0; background: #fff; color: #000; font: inherit; cursor: pointer; }
 button:disabled { cursor: wait; }
+input, select { font: inherit; color: #000; background: #fff; border: 1px solid #000; padding: 3px; }
+input[type=checkbox] { accent-color: #000; }
+fieldset { border: 1px solid #000; margin: 8px 0; }
+fieldset label { display: block; }
+form { margin: 16px 0; }
 .publication { margin: 24px 0; }
 .publication .authors, .publication .meta, .publication .links, #sync-status { font-size: 14px; }
 .publication .links a { margin-right: 16px; }

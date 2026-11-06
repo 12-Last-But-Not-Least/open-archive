@@ -26,6 +26,10 @@ jobs:
           node-version: '22'
       - name: Test public record handling
         run: node --test tests/*.test.js
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Test login and publication handling
+        run: python -m pytest -q tests/test_backend.py
       - name: Check data and build static pages
         run: python scripts/build.py
       - uses: actions/configure-pages@v5

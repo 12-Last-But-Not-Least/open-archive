@@ -1,0 +1,286 @@
+import asyncio
+import copy
+from datetime import datetime, timedelta, timezone
+
+import httpx
+import pytest
+from atproto_oauth.models import OAuthSession, OAuthState
+from cryptography.hazmat.primitives.asymmetric import ec
+from fastapi.testclient import TestClient
+
+from backend.app import COOKIE, create_app
+from backend.claims import approve
+from backend.oauth import ArchiveOAuthClient, SCOPE, refresh_did
+from backend.papers import COLLECTION, parse_arxiv
+from backend.storage import Database, OAuthStore
+
+ORIGIN = "http://127.0.0.1:8000"
+DID = "did:plc:rqu4asr46qcalfx5b2mxqzvx"
+OTHER = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa"
+CONFIG = {"collection": COLLECTION, "researchers": [
+    {"id": "bryce-hackel", "name": "Bryce Hackel", "did": DID, "handle": "bhackel.bsky.social"},
+    {"id": "jay", "name": "Jay", "did": "", "handle": ""},
+], "labs": [{"id": "ucsd-arc", "name": "ARC", "members": ["bryce-hackel"]}]}
+PAPER = {"id": "arxiv:2606.14083", "arxivId": "2606.14083", "title": "N2D", "authors": ["Bryce Hackel"],
+         "publishedAt": "2026-06-12T00:00:00Z", "url": "https://arxiv.org/abs/2606.14083",
+         "researcherIds": ["bryce-hackel"], "labIds": ["ucsd-arc"]}
+
+
+class FakeOAuth:
+    def __init__(self, database, browser_key, origin, network):
+        self.state_store = self.session_store = OAuthStore(database, browser_key)
+        self.network = network
+
+    async def start_authorization(self, handle):
+        import secrets
+        self.network["state"] = state = secrets.token_urlsafe(32)
+        await self.state_store.save_state(OAuthState(
+            state=state, pkce_verifier="test-verifier", redirect_uri=ORIGIN + "/auth/callback",
+            scope=SCOPE, authserver_iss="https://bsky.social", dpop_private_key=ec.generate_private_key(ec.SECP256R1()),
+            dpop_authserver_nonce="test-nonce", did=DID if handle == "bhackel.bsky.social" else OTHER, handle=handle))
+        return "https://bsky.social/oauth/authorize?request_uri=test", state
+
+    async def handle_callback(self, code, state, iss):
+        saved = await self.state_store.get_state(state)
+        if not saved or iss != saved.authserver_iss or code != "test-code":
+            raise ValueError("Invalid callback")
+        await self.state_store.delete_state(state)
+        session = OAuthSession(
+            did=saved.did, handle=saved.handle, pds_url="https://example.test", authserver_iss=iss,
+            access_token="test-secret-access", refresh_token="test-secret-refresh", dpop_private_key=saved.dpop_private_key,
+            dpop_authserver_nonce="test-nonce", scope=SCOPE, expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
+        await self.session_store.save_session(session)
+        return session
+
+    async def revoke_session(self, session):
+        self.network["revoked"].append(session.did)
+        await self.session_store.delete_session(session.did)
+
+    async def make_authenticated_request(self, session, method, url, **kwargs):
+        self.network["requests"].append((session.did, method, url, kwargs))
+        records = self.network["records"].setdefault(session.did, [])
+        if url.endswith("listRecords"):
+            data = {"records": records}
+        elif url.endswith("createRecord"):
+            body = kwargs["json"]
+            if body["record"]["title"] == "Fail":
+                return httpx.Response(503, request=httpx.Request(method, url))
+            uri = f'at://{session.did}/{COLLECTION}/{body["rkey"]}'
+            records.append({"uri": uri, "value": body["record"], "cid": "test-cid"})
+            data = {"uri": uri}
+        elif url.endswith("deleteRecord"):
+            rkey = kwargs["json"]["rkey"]
+            records[:] = [r for r in records if not r["uri"].endswith("/" + rkey)]
+            data = {}
+        else:
+            raise AssertionError(url)
+        return httpx.Response(200, json=data, request=httpx.Request(method, url))
+
+
+class FakeSearch:
+    def __init__(self):
+        self.calls = []
+
+    async def search(self, author):
+        self.calls.append(author)
+        return [{**PAPER, "title": "New paper", "id": "arxiv:2606.99999", "arxivId": "2606.99999", "labIds": []}]
+
+
+@pytest.fixture
+def setup(tmp_path):
+    network = {"requests": [], "records": {}, "revoked": []}
+    searcher = FakeSearch()
+    app = create_app(directory=tmp_path, config=copy.deepcopy(CONFIG), catalog=[copy.deepcopy(PAPER)],
+                     searcher=searcher, oauth_factory=lambda *args: FakeOAuth(*args, network))
+    with TestClient(app, base_url=ORIGIN) as client:
+        yield client, app, network, searcher
+
+
+def headers(client):
+    return {"Origin": ORIGIN, "X-CSRF-Token": client.get("/api/session").json()["csrf"]}
+
+
+def login(client, network, handle="bhackel.bsky.social"):
+    response = client.post("/auth/login", json={"handle": handle}, headers=headers(client))
+    assert response.status_code == 200
+    response = client.get("/auth/callback", params={"code": "test-code", "state": network["state"], "iss": "https://bsky.social"}, follow_redirects=False)
+    assert response.status_code == 303 and response.headers["location"] == "/account/"
+
+
+def test_real_login_adapter_has_minimal_publication_permissions(tmp_path):
+    from backend.oauth import make_client
+    client = make_client(Database(tmp_path), "browser", ORIGIN)
+    assert client.client_id.startswith("http://localhost?")
+    assert client.redirect_uri == ORIGIN + "/auth/callback"
+    assert client.scope == f"atproto repo:{COLLECTION}?action=create&action=delete"
+
+
+def test_login_rotates_cookie_keeps_tokens_private_and_logs_out(setup):
+    client, app, network, searcher = setup
+    info = client.get("/api/session")
+    old_cookie = client.cookies.get(COOKIE)
+    assert "HttpOnly" in info.headers["set-cookie"]
+    assert "SameSite=lax" in info.headers["set-cookie"]
+    login(client, network)
+    assert client.cookies.get(COOKIE) != old_cookie
+    info = client.get("/api/session")
+    assert info.json()["researcher"]["id"] == "bryce-hackel"
+    assert "test-secret" not in info.text
+    assert b"test-secret" not in app.state.database.path.read_bytes()
+    assert searcher.calls == []
+    assert client.post("/auth/logout", headers=headers(client)).status_code == 200
+    assert client.get("/api/publications").status_code == 401
+    assert network["revoked"] == [DID]
+
+
+def test_csrf_unauthenticated_writes_and_untrusted_hosts_are_rejected(setup):
+    client, _, network, _ = setup
+    assert client.post("/auth/login", json={"handle": "bhackel.bsky.social"}).status_code == 403
+    assert client.post("/api/publications", json={"papers": [{"id": PAPER["id"]}]}, headers=headers(client)).status_code == 401
+    login(client, network)
+    bad = {**headers(client), "Origin": "https://evil.example"}
+    assert client.post("/auth/logout", headers=bad).status_code == 403
+    assert client.post("/auth/logout", headers={"Origin": ORIGIN}).status_code == 403
+    assert client.get("/api/session", headers={"Host": "evil.example"}).status_code == 400
+
+
+def test_callback_requires_same_browser_issuer_and_one_time_state(setup):
+    client, app, network, _ = setup
+    client.post("/auth/login", json={"handle": "bhackel.bsky.social"}, headers=headers(client))
+    params = {"code": "test-code", "state": network["state"], "iss": "https://bsky.social"}
+    with TestClient(app, base_url=ORIGIN) as stranger:
+        stranger.get("/api/session")
+        assert stranger.get("/auth/callback", params=params).status_code == 400
+    response = client.get("/auth/callback", params={**params, "iss": "https://evil.example"}, follow_redirects=False)
+    assert response.headers["location"] == "/account/?error=login"
+    assert client.get("/auth/callback", params=params).status_code == 400
+    assert client.get("/api/session").json()["user"] is None
+
+
+def test_suggestions_do_not_publish_and_selected_import_is_idempotent(setup):
+    client, _, network, searcher = setup
+    login(client, network)
+    assert client.get("/api/suggestions").json()["papers"][0]["id"] == PAPER["id"]
+    assert client.get("/api/publications").json()["papers"] == []
+    assert searcher.calls == []
+    payload = {"papers": [{"id": PAPER["id"], "labIds": []}]}
+    first = client.post("/api/publications", json=payload, headers=headers(client))
+    assert first.json()["results"][0]["status"] == "added"
+    assert client.post("/api/publications", json=payload, headers=headers(client)).json()["results"][0]["status"] == "already-added"
+    writes = [r for r in network["requests"] if r[1] == "POST"]
+    assert len(writes) == 1
+    assert writes[0][3]["json"]["repo"] == DID
+    assert writes[0][3]["json"]["record"]["labIds"] == []
+    assert len(client.get("/api/publications").json()["papers"]) == 1
+
+
+def test_arxiv_only_runs_on_request_and_import_cannot_choose_other_account(setup):
+    client, _, network, searcher = setup
+    login(client, network)
+    data = client.post("/api/arxiv/search", json={"author": "Bryce Hackel"}, headers=headers(client)).json()
+    assert searcher.calls == ["Bryce Hackel"]
+    assert not network["records"]
+    payload = {"papers": [{"id": data["papers"][0]["id"]}], "repo": OTHER}
+    assert client.post("/api/publications", json=payload, headers=headers(client)).status_code == 422
+    payload.pop("repo")
+    assert client.post("/api/publications", json=payload, headers=headers(client)).json()["results"][0]["status"] == "added"
+    unknown = {"papers": [{"id": "arxiv:unknown"}]}
+    assert client.post("/api/publications", json=unknown, headers=headers(client)).status_code == 400
+
+
+def test_delete_does_not_restore_imported_paper(setup):
+    client, _, network, _ = setup
+    login(client, network)
+    client.get("/api/suggestions")
+    payload = {"papers": [{"id": PAPER["id"]}]}
+    client.post("/api/publications", json=payload, headers=headers(client))
+    paper = client.get("/api/publications").json()["papers"][0]
+    assert client.delete("/api/publications/" + paper["rkey"], headers=headers(client)).status_code == 200
+    assert client.get("/api/publications").json()["papers"] == []
+    assert client.get("/api/suggestions").json()["papers"]
+
+
+def test_import_matches_existing_doi_even_when_suggestion_has_arxiv_id(setup):
+    client, app, network, _ = setup
+    login(client, network)
+    # Seed an on-demand suggestion with both identifiers and a DOI-only PDS record.
+    client.get("/api/suggestions")
+    import hashlib
+    browser_key = hashlib.sha256(client.cookies.get(COOKIE).encode()).hexdigest()
+    app.state.database.put("suggestions:" + browser_key, {PAPER["id"]: {**PAPER, "doi": "10.1234/test"}})
+    value = {**PAPER, "$type": COLLECTION, "doi": "10.1234/TEST"}
+    value.pop("arxivId")
+    network["records"][DID] = [{"uri": f"at://{DID}/{COLLECTION}/existing", "value": value}]
+    result = client.post("/api/publications", json={"papers": [{"id": PAPER["id"]}]}, headers=headers(client))
+    assert result.json()["results"][0]["status"] == "already-added"
+    assert not [r for r in network["requests"] if r[1] == "POST"]
+
+
+def test_partial_import_reports_successes_and_can_retry(setup):
+    client, app, network, _ = setup
+    login(client, network)
+    import hashlib
+    browser_key = hashlib.sha256(client.cookies.get(COOKIE).encode()).hexdigest()
+    second = {**PAPER, "id": "arxiv:2606.99999", "arxivId": "2606.99999", "title": "Fail"}
+    app.state.database.put("suggestions:" + browser_key, {PAPER["id"]: PAPER, second["id"]: second})
+    payload = {"papers": [{"id": PAPER["id"]}, {"id": second["id"]}]}
+    result = client.post("/api/publications", json=payload, headers=headers(client)).json()
+    assert [r["status"] for r in result["results"]] == ["added", "failed"]
+    result = client.post("/api/publications", json=payload, headers=headers(client)).json()
+    assert [r["status"] for r in result["results"]] == ["already-added", "failed"]
+    assert len(network["records"][DID]) == 1
+
+
+def test_claim_is_pending_until_maintainer_approval(setup):
+    client, app, network, _ = setup
+    login(client, network, "jay.bsky.social")
+    assert client.post("/api/claims", json={"researcherId": "bryce-hackel"}, headers=headers(client)).status_code == 409
+    assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 200
+    assert not client.get("/data/site.json").json()["researchers"][1]["did"]
+    assert client.get("/api/session").json()["researcher"] is None
+    approve(app.state.database, CONFIG, OTHER, "jay")
+    assert client.get("/data/site.json").json()["researchers"][1]["did"] == OTHER
+    assert client.get("/api/session").json()["researcher"]["id"] == "jay"
+    with pytest.raises(ValueError):
+        approve(app.state.database, CONFIG, OTHER, "bryce-hackel")
+
+
+def test_store_survives_restart_and_expires_states(tmp_path):
+    database = Database(tmp_path)
+    database.put("test", {"token": "do-not-store-plainly"})
+    assert Database(tmp_path).get("test") == {"token": "do-not-store-plainly"}
+    assert b"do-not-store-plainly" not in database.path.read_bytes()
+    database.put("expired", {}, ttl=-1)
+    assert database.get("expired") is None
+    assert database.get("test", consume=True)
+    assert database.get("test") is None
+
+
+def test_arxiv_parser_normalizes_versions_and_rejects_xml_entities():
+    xml = '''<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+    <id>http://arxiv.org/abs/2606.14083v2</id><title>A\n paper</title>
+    <author><name>Bryce Hackel</name></author><published>2026-06-12T00:00:00Z</published>
+    <summary>Text</summary></entry></feed>'''
+    paper = parse_arxiv(xml)[0]
+    assert paper["arxivId"] == "2606.14083"
+    assert paper["title"] == "A paper"
+    assert paper["labIds"] == []
+    with pytest.raises(Exception):
+        parse_arxiv('<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><feed>&xxe;</feed>')
+
+
+def test_refresh_rejects_changed_identity_before_persisting(monkeypatch, tmp_path):
+    from atproto_oauth import OAuthClient
+    from backend.oauth import make_client
+
+    async def response(self, *args, **kwargs):
+        return "nonce", httpx.Response(200, json={"sub": OTHER})
+
+    monkeypatch.setattr(OAuthClient, "_make_token_request", response)
+    client = make_client(Database(tmp_path), "browser", ORIGIN)
+    token = refresh_did.set(DID)
+    try:
+        with pytest.raises(Exception, match="identity changed"):
+            asyncio.run(client._make_token_request(params={"grant_type": "refresh_token"}))
+    finally:
+        refresh_did.reset(token)
