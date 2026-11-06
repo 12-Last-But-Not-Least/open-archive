@@ -1,0 +1,177 @@
+// Public reads only. This file never needs a password or access token.
+
+export function safeURL(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password ? url.href : null;
+  } catch { return null; }
+}
+
+export function publicationKey(paper) {
+  if (paper.arxivId) return "arxiv:" + paper.arxivId.replace(/v\d+$/, "");
+  if (paper.doi) return "doi:" + paper.doi.toLowerCase().replace(/^https:\/\/doi\.org\//, "");
+  return safeURL(paper.url);
+}
+
+export function normalizeRecord(item, researcher, collection, pds) {
+  const record = item.value;
+  if (!record || record.$type !== collection || typeof record.title !== "string" || !record.title.trim()) return null;
+  if (!safeURL(record.url) || typeof record.publishedAt !== "string" || !Number.isFinite(Date.parse(record.publishedAt))) return null;
+  if (!Array.isArray(record.authors) || !record.authors.length || record.authors.some(author => typeof author !== "string")) return null;
+  const prefix = `at://${researcher.did}/${collection}/`;
+  if (typeof item.uri !== "string" || !item.uri.startsWith(prefix)) return null;
+  const rkey = item.uri.slice(prefix.length);
+  if (!/^[a-zA-Z0-9._~:-]+$/.test(rkey)) return null;
+  return {
+    title: record.title, authors: record.authors, publishedAt: record.publishedAt,
+    abstract: typeof record.abstract === "string" ? record.abstract : "", url: record.url,
+    arxivId: typeof record.arxivId === "string" && /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/.test(record.arxivId) ? record.arxivId : "",
+    doi: typeof record.doi === "string" ? record.doi : "",
+    venue: typeof record.venue === "string" ? record.venue : "",
+    labIds: Array.isArray(record.labIds) ? record.labIds.filter(id => typeof id === "string") : [],
+    researcherIds: [researcher.id], source: "atproto",
+    recordURL: pds + "/xrpc/com.atproto.repo.getRecord?" + new URLSearchParams({repo: researcher.did, collection, rkey}),
+  };
+}
+
+export function mergePublications(imported, live) {
+  const papers = new Map();
+  for (const paper of [...imported, ...live]) {
+    const key = publicationKey(paper);
+    if (!key) continue;
+    const existing = papers.get(key);
+    papers.set(key, {
+      ...existing, ...paper,
+      researcherIds: [...new Set([...(existing?.researcherIds || []), ...paper.researcherIds])],
+      labIds: [...new Set([...(existing?.labIds || []), ...paper.labIds])],
+    });
+  }
+  return [...papers.values()].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+}
+
+export function filterPublications(papers, page, id) {
+  if (page === "researcher") return papers.filter(paper => paper.researcherIds.includes(id));
+  if (page === "lab") return papers.filter(paper => paper.labIds.includes(id));
+  return papers;
+}
+
+async function getJSON(url) {
+  const response = await fetch(url, {signal: AbortSignal.timeout(12000), credentials: "omit", cache: "no-store"});
+  if (!response.ok) throw new Error("Request failed (" + response.status + ")");
+  return response.json();
+}
+
+export async function readPublications(researcher, collection, get = getJSON) {
+  // A DID is the stable account id, even if the researcher changes their handle.
+  let documentURL;
+  if (/^did:plc:[a-z2-7]{24}$/.test(researcher.did)) {
+    documentURL = "https://plc.directory/" + researcher.did;
+  } else if (/^did:web:[a-zA-Z0-9.-]+$/.test(researcher.did)) {
+    documentURL = "https://" + researcher.did.slice(8) + "/.well-known/did.json";
+  } else { throw new Error("Unsupported account identifier"); }
+  const identity = await get(documentURL);
+  if (identity.id !== researcher.did) throw new Error("Account identity mismatch");
+  const service = identity.service?.find(item => item.type === "AtprotoPersonalDataServer");
+  const endpoint = safeURL(service?.serviceEndpoint);
+  if (!endpoint) throw new Error("Account has no HTTPS data server");
+  const pds = endpoint.replace(/\/$/, "");
+  let cursor;
+  const seen = new Set();
+  const papers = [];
+  do {
+    const params = new URLSearchParams({repo: researcher.did, collection, limit: "100"});
+    if (cursor) params.set("cursor", cursor);
+    const result = await get(pds + "/xrpc/com.atproto.repo.listRecords?" + params);
+    if (!Array.isArray(result.records)) throw new Error("Invalid data server response");
+    for (const item of result.records) {
+      const paper = normalizeRecord(item, researcher, collection, pds);
+      if (paper) papers.push(paper);
+    }
+    cursor = result.cursor;
+    if (cursor && seen.has(cursor)) throw new Error("Data server repeated a page");
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return papers;
+}
+
+function element(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
+function link(text, url) {
+  const node = element("a", text);
+  node.href = safeURL(url) || "#";
+  return node;
+}
+
+function renderPublications(papers, target) {
+  target.replaceChildren();
+  if (!papers.length) {
+    target.append(element("p", "No publications added yet.", "empty"));
+    return;
+  }
+  for (const paper of papers) {
+    const article = element("article", null, "publication");
+    const heading = element("h3");
+    heading.append(link(paper.title, paper.url));
+    article.append(heading, element("p", paper.authors.join(", "), "authors"));
+    const date = new Date(paper.publishedAt).toLocaleDateString("en-US", {year: "numeric", month: "short", day: "numeric", timeZone: "UTC"});
+    const citation = paper.arxivId ? "arXiv:" + paper.arxivId : paper.venue || (paper.doi ? "doi:" + paper.doi : "");
+    const meta = element("p", date + (citation ? " · " + citation : ""), "meta");
+    meta.append(element("span", paper.source === "atproto" ? "ATProto record" : paper.source === "arxiv" ? "arXiv import" : "Publication import", "source-label"));
+    article.append(meta);
+    const links = element("p", null, "links");
+    links.append(link("Read paper ↗", paper.url));
+    if (paper.projectURL && safeURL(paper.projectURL)) links.append(link("Project ↗", paper.projectURL));
+    if (paper.recordURL && safeURL(paper.recordURL)) links.append(link("Public record ↗", paper.recordURL));
+    article.append(links);
+    if (paper.abstract) {
+      const details = element("details");
+      details.append(element("summary", "Abstract"), element("p", paper.abstract));
+      article.append(details);
+    }
+    target.append(article);
+  }
+}
+
+async function start() {
+  const {root, page, id} = document.body.dataset;
+  const status = document.querySelector("#sync-status");
+  const button = document.querySelector("#refresh");
+  const target = document.querySelector("#publication-list");
+  try {
+    const [config, imported] = await Promise.all([getJSON(root + "data/site.json"), getJSON(root + "data/papers.json")]);
+    const researchers = config.researchers.filter(researcher => researcher.did && (page !== "researcher" || researcher.id === id));
+    let refreshing = false;
+    async function refresh() {
+      if (refreshing) return;
+      refreshing = true;
+      button.disabled = true;
+      status.textContent = "Reading public research records…";
+      try {
+        const results = await Promise.allSettled(researchers.map(researcher => readPublications(researcher, config.collection)));
+        const live = results.flatMap(result => result.status === "fulfilled" ? result.value : []);
+        const failures = results.filter(result => result.status === "rejected").length;
+        const papers = filterPublications(mergePublications(imported, live), page, id);
+        renderPublications(papers, target);
+        if (!researchers.length) status.textContent = "Showing imported publications. No ATProto account linked yet.";
+        else if (failures) status.textContent = "Some public records could not be loaded. Showing available records and imported publications. Try refreshing.";
+        else if (!live.length) status.textContent = "Account connected · no publication records published yet. Showing imported publications.";
+        else status.textContent = "Read from ATProto just now · " + live.length + " publication record" + (live.length === 1 ? "" : "s") + ".";
+      } finally {
+        button.disabled = false;
+        refreshing = false;
+      }
+    }
+    button.addEventListener("click", refresh);
+    await refresh();
+  } catch {
+    status.textContent = "Live updates unavailable. Showing the publications included with this page.";
+    button.disabled = true;
+  }
+}
+
+if (typeof document !== "undefined") start();

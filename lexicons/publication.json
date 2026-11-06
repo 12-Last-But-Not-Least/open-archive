@@ -1,0 +1,27 @@
+{
+  "lexicon": 1,
+  "id": "io.github.12-last-but-not-least.publication",
+  "description": "Draft record schema for a researcher's public publication claim.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["title", "authors", "url", "publishedAt", "createdAt", "labIds"],
+        "properties": {
+          "title": {"type": "string", "maxLength": 1000},
+          "authors": {"type": "array", "maxLength": 100, "items": {"type": "string", "maxLength": 300}},
+          "url": {"type": "string", "format": "uri"},
+          "arxivId": {"type": "string", "maxLength": 100},
+          "doi": {"type": "string", "maxLength": 300},
+          "venue": {"type": "string", "maxLength": 300},
+          "abstract": {"type": "string", "maxLength": 10000},
+          "publishedAt": {"type": "string", "format": "datetime"},
+          "createdAt": {"type": "string", "format": "datetime"},
+          "labIds": {"type": "array", "maxLength": 20, "items": {"type": "string", "maxLength": 100}}
+        }
+      }
+    }
+  }
+}

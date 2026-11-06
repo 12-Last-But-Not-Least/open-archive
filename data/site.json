@@ -1,0 +1,28 @@
+{
+  "name": "open archive",
+  "collection": "io.github.12-last-but-not-least.publication",
+  "researchers": [
+    {
+      "id": "bryce-hackel",
+      "name": "Bryce Hackel",
+      "institution": "University of California San Diego",
+      "about": "Research in robotics, haptics, and computer science education.",
+      "handle": "bhackel.bsky.social",
+      "did": "did:plc:rqu4asr46qcalfx5b2mxqzvx",
+      "website": "https://ucsdarclab.github.io/n2d-glove/"
+    }
+  ],
+  "labs": [
+    {
+      "id": "ucsd-arc",
+      "name": "Advanced Robotics and Controls Lab",
+      "shortName": "ARC Lab",
+      "institution": "University of California San Diego",
+      "about": "Robotics, haptics, and the ways people interact with machines.",
+      "demo": true,
+      "members": [
+        "bryce-hackel"
+      ]
+    }
+  ]
+}
