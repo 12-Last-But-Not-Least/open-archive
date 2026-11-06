@@ -175,7 +175,7 @@ $("#search").addEventListener("submit", event => {
     const data = await api("/api/arxiv/search", "POST", {author: $("#author").value.trim()});
     suggestions = [...new Map([...suggestions, ...data.papers].map(paper => [paper.id, paper])).values()];
     renderSuggestions();
-    status(data.papers.length + " results. Select the papers that are yours.");
+    status(data.papers.length + " results. Choose papers to add.");
   });
 });
 $("#import").addEventListener("submit", event => {
