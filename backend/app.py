@@ -1,4 +1,4 @@
-"""Local FastAPI app: login, profile claims, paper suggestions, and PDS writes."""
+"""FastAPI app: login, profile claims, paper suggestions, and PDS writes."""
 
 import asyncio
 import hashlib
@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .oauth import make_client
+from .oauth import client_metadata, make_client
 from .papers import COLLECTION, ArxivSearch, list_papers, make_record, paper_key, paper_keys, record_key, xrpc
 from .storage import Database, OAuthStore
 
@@ -50,11 +50,27 @@ class Import(Input):
 
 
 def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_factory=make_client, searcher=None):
-    origin = (origin or os.environ.get("OPEN_ARCHIVE_ORIGIN", "http://127.0.0.1:8000")).rstrip("/")
+    origin = (origin or os.environ.get("OPEN_ARCHIVE_ORIGIN") or (
+        "https://" + os.environ["RAILWAY_PUBLIC_DOMAIN"] if os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+        else "http://127.0.0.1:8000")).rstrip("/")
     parsed = urlparse(origin)
-    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.path or parsed.query or parsed.fragment or parsed.username:
-        raise ValueError("This prototype uses loopback OAuth. Set OPEN_ARCHIVE_ORIGIN to http://127.0.0.1:<port>.")
-    database = Database(directory or os.environ.get("OPEN_ARCHIVE_STATE_DIR", ROOT / ".local"))
+    secure = parsed.scheme == "https"
+    cookie_name = "__Host-" + COOKIE if secure else COOKIE
+    if os.environ.get("RAILWAY_ENVIRONMENT_ID") and not secure:
+        raise ValueError("Create the Railway public domain before deploying, or set OPEN_ARCHIVE_ORIGIN.")
+    if (parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password or not parsed.hostname
+            or not (secure or (parsed.scheme == "http" and parsed.hostname == "127.0.0.1"))):
+        raise ValueError("OPEN_ARCHIVE_ORIGIN must be an HTTPS origin, or http://127.0.0.1:<port> locally.")
+    state_dir = directory or os.environ.get("OPEN_ARCHIVE_STATE_DIR") or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+    if secure and not state_dir:
+        raise ValueError("Hosted deployments require a persistent state directory.")
+    if os.environ.get("RAILWAY_ENVIRONMENT_ID"):
+        mount = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+        if not mount or not Path(state_dir).resolve().is_relative_to(Path(mount).resolve()):
+            raise ValueError("Attach a persistent Railway volume containing OPEN_ARCHIVE_STATE_DIR.")
+    database = Database(state_dir or ROOT / ".local")
+    if secure:
+        client_metadata(database, origin)  # Create the signing key once at startup.
     config = config or json.loads((ROOT / "data/site.json").read_text())
     catalog = catalog if catalog is not None else json.loads((ROOT / "data/papers.json").read_text())
     searcher = searcher or ArxivSearch()
@@ -62,10 +78,27 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     locks = [asyncio.Lock() for _ in range(64)]
     app = FastAPI(title="Open Archive", docs_url="/api/docs", redoc_url=None)
     app.state.database = database
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1"])
+    allowed_hosts = [parsed.hostname]
+    if os.environ.get("RAILWAY_ENVIRONMENT_ID"):
+        allowed_hosts.append("healthcheck.railway.app")
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+    rate_windows = {}
+
+    def rate_limit(request, limit):
+        now = time.monotonic()
+        expired = [key for key, value in rate_windows.items() if value[0] <= now]
+        for key in expired:
+            rate_windows.pop(key)
+        key = (request.client.host if request.client else "unknown", request.url.path)
+        if key not in rate_windows:
+            if len(rate_windows) >= 4096:
+                return False
+            rate_windows[key] = [now + 60, 0]
+        rate_windows[key][1] += 1
+        return rate_windows[key][1] <= limit
 
     def browser(request):
-        cookie = request.cookies.get(COOKIE, "")
+        cookie = request.cookies.get(cookie_name, "")
         key = hashlib.sha256(cookie.encode()).hexdigest()
         data = database.get("browser:" + key) if cookie else None
         if data is None:
@@ -77,7 +110,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         key = hashlib.sha256(cookie.encode()).hexdigest()
         data = {**(data or {}), "csrf": secrets.token_urlsafe(32)}
         database.put("browser:" + key, data)
-        response.set_cookie(COOKIE, cookie, httponly=True, samesite="lax", max_age=7 * 86400, path="/")
+        response.set_cookie(cookie_name, cookie, secure=secure, httponly=True, samesite="lax", max_age=7 * 86400, path="/")
         return key, data
 
     def public_config():
@@ -114,6 +147,10 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
 
     @app.middleware("http")
     async def security(request, call_next):
+        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10}
+        if request.url.path in limits and not rate_limit(request, limits[request.url.path]):
+            return JSONResponse({"detail": "Too many requests. Try again in a minute."}, status_code=429,
+                                headers={"Retry-After": "60"})
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             if request.headers.get("origin") != origin:
                 return JSONResponse({"detail": "Request must come from this site."}, status_code=403)
@@ -123,20 +160,32 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
                 return JSONResponse({"detail": "Open the account page first."}, status_code=401)
             if not secrets.compare_digest(request.headers.get("x-csrf-token", ""), data["csrf"]):
                 return JSONResponse({"detail": "Session check failed. Reload the page."}, status_code=403)
-            body = await request.body()
-            if len(body) > 16000:
-                return JSONResponse({"detail": "Request too large."}, status_code=413)
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > 16000:
+                    return JSONResponse({"detail": "Request too large."}, status_code=413)
+            request._body = bytes(body)  # Replay the bounded body to FastAPI's parser.
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
+        if secure:
+            response.headers["Strict-Transport-Security"] = "max-age=86400"
         if request.url.path.startswith(("/api/", "/auth/", "/data/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok"}
+        revision = ROOT / "backend/revision.txt"
+        return {"status": "ok", "revision": revision.read_text().strip() if revision.exists() else "development"}
+
+    @app.get("/oauth-client-metadata.json")
+    async def oauth_metadata():
+        if not secure:
+            raise HTTPException(404, "Local development uses loopback client metadata.")
+        return client_metadata(database, origin)
 
     @app.get("/api/session")
     async def session_info(request: Request):
@@ -212,7 +261,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             database.delete("browser:" + key)
             database.delete("suggestions:" + key)
         response = JSONResponse({"ok": True})
-        response.delete_cookie(COOKIE, path="/")
+        response.delete_cookie(cookie_name, path="/", secure=secure, httponly=True, samesite="lax")
         return response
 
     @app.post("/api/claims")
@@ -308,7 +357,8 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
 
     @app.get("/data/site.json")
     async def site_config():
-        return public_config()
+        # Only this public directory endpoint is readable by GitHub Pages.
+        return JSONResponse(public_config(), headers={"Access-Control-Allow-Origin": "*"})
 
     @app.get("/account/")
     async def account_page():

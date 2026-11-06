@@ -22,7 +22,7 @@ The account page shows your PDS publications and imported suggestions. Select pa
 
 SQLite stores profile claim requests and approved account links. Session credentials, temporary OAuth state, and suggestions are encrypted. Runtime files and the encryption key are under ignored `.local/`; retain that directory to keep sessions and approvals across restarts. Publications themselves remain in the PDS.
 
-This is a local, single-worker prototype, bound to `127.0.0.1`. A hosted backend is not deployed. GitHub Pages remains the public read-only site. Deploying login later requires HTTPS, public OAuth client metadata, a persistent runtime data directory, and a review of the OAuth library's server-side networking protections. The prototype deliberately rejects non-loopback origins.
+The development command binds to `127.0.0.1`. The same app can run on Railway using the deployment below. Hosted login uses HTTPS, secure cookies, and a persistent OAuth signing key. ATProto discovery requests check DNS results and connect only to validated public IPs, preserving TLS hostname verification.
 
 ## Run only the static website
 
@@ -46,6 +46,7 @@ Open http://localhost:8000. Use an HTTP server instead of opening HTML files dir
 - `web/account.html` and `web/account.js`: plain sign-in and publication management page.
 - `backend/app.py`: FastAPI routes and browser sessions.
 - `backend/oauth.py` and `backend/storage.py`: OAuth integration and encrypted SQLite storage.
+- `backend/network.py`: public-IP-only ATProto discovery and requests.
 - `backend/papers.py`: on-demand arXiv search and PDS publication operations.
 - `data/site.json`: researchers, stable account DIDs, labs, and approved lab memberships.
 - `data/papers.json`: imported paper metadata and paper-specific lab affiliations.
@@ -94,11 +95,30 @@ In the backend prototype, an unlinked account can request an existing unclaimed 
 .venv/bin/python -m backend.claims approve did:plc:EXAMPLE researcher-id
 ```
 
-No approval emails are sent automatically. Signing in alone does not claim a researcher profile. An approved profile keeps its existing URL; its publications come from the linked PDS. The local backend serves the approved mappings immediately. Publishing that mapping to the static GitHub Pages site still requires updating `data/site.json` and pushing. Bryce's existing DID and both published records remain in place.
+No approval emails are sent automatically. Signing in alone does not claim a researcher profile. An approved profile keeps its existing URL; its publications come from the linked PDS. The backend serves approved mappings immediately. When the GitHub Pages build is connected to the backend, it also reads those mappings. Without a backend URL, updating the static site's mappings requires updating `data/site.json` and pushing. Bryce's existing DID and both published records remain in place.
 
-## Deploy
+## Deploy the backend automatically
 
-The GitHub Actions workflow tests the backend and frontend, builds, and deploys `dist/` on pushes to `main`. In repository Settings → Pages, select **GitHub Actions** as the source. Backend code, sessions, and credentials are not included in the Pages deployment. The account navigation link is enabled only by the local development build. There is no scheduled scraping.
+The hosted account page is **https://open-archive-production.up.railway.app/account/**. The public website remains on [GitHub Pages](https://12-last-but-not-least.github.io/open-archive/).
+
+`.github/workflows/backend.yml` tests and builds the Docker container on pushes and pull requests. Once Railway is connected, pushes to `main` deploy it automatically. The workflow uploads a clean Git snapshot and waits until `/api/health` reports the new commit. A successful build alone is not treated as a successful deployment. Without the Railway configuration, checks run and deployment is explicitly skipped.
+
+One-time setup:
+
+1. Create a Railway project and an empty service named `open-archive`. Let Actions own deployments; do not also enable Railway's GitHub autodeploys for this service.
+2. Attach a persistent volume at **`/data`**. Start with the smallest capacity offered by the selected plan. Keep one service replica; SQLite and token-refresh locks assume one worker.
+3. Select the Dockerfile builder with path `Dockerfile`. Set the healthcheck path to `/api/health`, timeout to 120 seconds, and restart policy to on-failure with three retries. Enable serverless sleeping for the prototype. These settings live in Railway's service configuration.
+4. Generate a public Railway domain targeting port **8000**. Set service variables `PORT=8000`, `OPEN_ARCHIVE_ORIGIN` to its `https://…` origin, and `FORWARDED_ALLOW_IPS=*` for Railway's edge proxy. The Dockerfile sets `OPEN_ARCHIVE_STATE_DIR=/data/open-archive`. The app refuses a Railway deployment without its volume.
+5. Create a Railway **project token scoped to that environment** in Project Settings → Tokens. Save it as the GitHub repository Actions secret `RAILWAY_TOKEN`; never commit it. Set repository variables `RAILWAY_SERVICE_ID` to the service ID and `OPEN_ARCHIVE_BACKEND_URL` to the HTTPS origin.
+6. Run **Publish backend** in GitHub Actions. After it succeeds, run **Publish website** once to put the account link on GitHub Pages. Later pushes run both workflows automatically.
+
+The backend serves the full plain website plus `/account/`, `/api/docs`, and public OAuth metadata. SQLite, the session encryption key, and the OAuth signing key stay on the volume across deployments. Back up that volume before replacing it. Claim approval commands run inside the hosted service using `python -m backend.claims ...`; they do not operate on the laptop's `.local/` database.
+
+The [Railway free plan](https://railway.com/pricing) provides a trial and limited monthly credits, not unlimited hosting. Use the free plan for this prototype and review usage before choosing a paid plan. [Railway deployment docs](https://docs.railway.com/cli/deploying) and [volume docs](https://docs.railway.com/volumes) describe the hosting setup.
+
+## Deploy the public website
+
+The Pages workflow tests the backend and frontend, builds, and deploys `dist/` on pushes to `main`. In repository Settings → Pages, select **GitHub Actions** as the source. Backend code, sessions, and credentials are not included in the Pages deployment. `OPEN_ARCHIVE_BACKEND_URL` adds the hosted account link and lets public pages read approved researcher mappings from the backend. There is no scheduled scraping.
 
 ## Check it
 
@@ -106,7 +126,7 @@ Node.js 20+ runs the public-record tests; no npm dependencies are needed.
 
 ```bash
 node --test tests/*.test.js
-.venv/bin/python -m pytest -q tests/test_backend.py
+.venv/bin/python -m pytest -q tests/test_backend.py tests/test_hosting.py
 python3 scripts/build.py
 ```
 

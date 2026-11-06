@@ -1,0 +1,17 @@
+**
+!Dockerfile
+!requirements.txt
+!backend/
+!backend/**
+!scripts/
+!scripts/**
+!web/
+!web/**
+!data/
+!data/**
+**/__pycache__/
+**/*.pyc
+**/*.sqlite3*
+**/*.key
+**/*.pem
+**/.env*

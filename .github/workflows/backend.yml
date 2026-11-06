@@ -1,0 +1,58 @@
+name: Publish backend
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q tests/test_backend.py tests/test_hosting.py
+      - run: node --test tests/*.test.js
+      - name: Build backend container
+        run: docker build -t open-archive-check .
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.RAILWAY_SERVICE_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: backend
+      url: ${{ vars.OPEN_ARCHIVE_BACKEND_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.71.0
+      - name: Deploy and verify the new revision
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+          OPEN_ARCHIVE_BACKEND_URL: ${{ vars.OPEN_ARCHIVE_BACKEND_URL }}
+        run: python scripts/deploy_backend.py
+  setup-status:
+    if: github.ref == 'refs/heads/main' && vars.RAILWAY_SERVICE_ID == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report missing hosting connection
+        run: echo 'Backend deployment is not enabled yet. Connect Railway and configure the service, persistent volume, repository token, and backend URL described in README.md.' >> "$GITHUB_STEP_SUMMARY"

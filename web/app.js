@@ -143,12 +143,12 @@ function renderPublications(papers, target) {
 }
 
 async function start() {
-  const {root, page, id} = document.body.dataset;
+  const {root, page, id, apiRoot} = document.body.dataset;
   const status = document.querySelector("#sync-status");
   const button = document.querySelector("#refresh");
   const target = document.querySelector("#publication-list");
   try {
-    const [config, imported] = await Promise.all([getJSON(root + "data/site.json"), getJSON(root + "data/papers.json")]);
+    const [config, imported] = await Promise.all([getJSON(apiRoot ? apiRoot + "/data/site.json" : root + "data/site.json"), getJSON(root + "data/papers.json")]);
     const unclaimed = filterPublications(unclaimedPublications(imported, config.researchers), page, id);
     const researchers = config.researchers.filter(researcher => researcher.did && (page !== "researcher" || researcher.id === id));
     let refreshing = false;
