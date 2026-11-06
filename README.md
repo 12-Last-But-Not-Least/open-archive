@@ -17,7 +17,9 @@ Open http://localhost:8000. Use an HTTP server instead of opening HTML files dir
 
 ## Edit it
 
-- `web/index.html`: homepage.
+- `web/index.html`: forwards the root URL to the publications page.
+- `web/publications.html`: publication list.
+- `web/directory.html`: researcher and lab directories.
 - `web/researcher.html` and `web/lab.html`: page templates.
 - `web/style.css`: all styling.
 - `web/app.js`: public ATProto reads and publication rendering.
@@ -25,7 +27,7 @@ Open http://localhost:8000. Use an HTTP server instead of opening HTML files dir
 - `data/papers.json`: imported paper metadata and paper-specific lab affiliations.
 - `lexicons/publication.json`: our draft publication record schema.
 
-Rebuild after changing templates or JSON. Pages are generated under `/researchers/<id>/` and `/labs/<id>/`. Relative links work on both localhost and the GitHub Pages project URL.
+Rebuild after changing templates or JSON. The main pages are `/publications/`, `/researchers/`, and `/labs/`. Individual pages are generated under `/researchers/<id>/` and `/labs/<id>/`. Relative links work on both localhost and the GitHub Pages project URL.
 
 ## Add a paper
 

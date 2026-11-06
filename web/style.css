@@ -11,7 +11,7 @@ section { margin: 28px 0; }
 p { margin: 8px 0; }
 .directory-item { margin: 16px 0; }
 .directory-item p { margin: 4px 0; }
-.section-heading h2 { display: inline; margin-right: 12px; }
+.section-heading h1, .section-heading h2 { display: inline; margin-right: 12px; }
 button { padding: 3px 8px; border: 1px solid #000; border-radius: 0; background: #fff; color: #000; font: inherit; cursor: pointer; }
 button:disabled { cursor: wait; }
 .publication { margin: 24px 0; }

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Publications on Open Archive.">
+  <title>Publications · Open Archive</title>
+  <link rel="stylesheet" href="{{ROOT}}assets/style.css">
+  <script type="module" src="{{ROOT}}assets/app.js"></script>
+</head>
+<body data-page="publications" data-root="{{ROOT}}">
+  <header>
+    <nav aria-label="Main"><a href="{{ROOT}}publications/">Open Archive</a> | <a href="{{ROOT}}researchers/">Researchers</a> | <a href="{{ROOT}}labs/">Labs</a> | <a href="{{ROOT}}publications/" aria-current="page">Publications</a></nav>
+  </header>
+  <main>
+    <section aria-labelledby="publications-heading">
+      <div class="section-heading"><h1 id="publications-heading">Publications</h1> <button id="refresh" type="button">Refresh</button></div>
+      <p id="sync-status" role="status"></p>
+      <div id="publication-list" aria-live="polite">{{PUBLICATIONS}}</div>
+    </section>
+  </main>
+  <footer><a href="https://github.com/12-Last-But-Not-Least/open-archive">Source code</a></footer>
+</body>
+</html>

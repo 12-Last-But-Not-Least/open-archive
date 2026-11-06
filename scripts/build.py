@@ -89,11 +89,17 @@ def main():
         shutil.copyfile(ROOT / "web" / asset, output / "assets" / asset)
     shutil.copytree(ROOT / "data", output / "data")
     (output / ".nojekyll").touch()
-    render("index.html", output / "index.html", {
-        "ROOT": "./", "RESEARCHER_COUNT": len(config["researchers"]), "LAB_COUNT": len(config["labs"]),
-        "RESEARCHERS": directory(config["researchers"], "researchers", "./"),
-        "LABS": directory(config["labs"], "labs", "./"), "PUBLICATIONS": publications(papers),
+    render("index.html", output / "index.html", {"ROOT": "./"})
+    render("publications.html", output / "publications" / "index.html", {
+        "ROOT": "../", "PUBLICATIONS": publications(papers),
     })
+    for kind in ("researchers", "labs"):
+        render("directory.html", output / kind / "index.html", {
+            "ROOT": "../", "TITLE": kind.capitalize(),
+            "ENTRIES": directory(config[kind], kind, "../"),
+            "RESEARCHERS_CURRENT": 'aria-current="page"' if kind == "researchers" else "",
+            "LABS_CURRENT": 'aria-current="page"' if kind == "labs" else "",
+        })
     for researcher in config["researchers"]:
         affiliations = [lab for lab in config["labs"] if researcher["id"] in lab["members"]]
         account = ('<a href="https://bsky.app/profile/' + text(researcher["did"]) + '">@' + text(researcher["handle"]) + '</a>') if researcher.get("did") else "No ATProto account linked yet."
@@ -114,7 +120,7 @@ def main():
             "DEMO_NOTE": '<p class="note">Demo page. Not the lab’s official website.</p>' if lab.get("demo") else "",
             "PUBLICATIONS": publications([paper for paper in papers if lab["id"] in paper["labIds"]]),
         })
-    print(f"Built {1 + len(config['researchers']) + len(config['labs'])} pages in {output}")
+    print(f"Built {4 + len(config['researchers']) + len(config['labs'])} pages in {output}")
 
 
 if __name__ == "__main__":

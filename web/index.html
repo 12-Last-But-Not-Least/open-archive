@@ -3,31 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Researchers, labs, and publications.">
-  <title>Open Archive</title>
   <link rel="stylesheet" href="{{ROOT}}assets/style.css">
-  <script type="module" src="{{ROOT}}assets/app.js"></script>
+  <meta http-equiv="refresh" content="0;url={{ROOT}}publications/">
+  <title>Publications · Open Archive</title>
 </head>
-<body data-page="home" data-root="{{ROOT}}">
-  <header>
-    <nav aria-label="Main"><a href="{{ROOT}}">Open Archive</a> | <a href="{{ROOT}}#researchers">Researchers</a> | <a href="{{ROOT}}#labs">Labs</a> | <a href="{{ROOT}}#publications">Publications</a></nav>
-  </header>
-  <main>
-    <h1>Open Archive</h1>
-    <section id="researchers" aria-labelledby="researchers-heading">
-      <h2 id="researchers-heading">Researchers ({{RESEARCHER_COUNT}})</h2>
-      <div class="directory">{{RESEARCHERS}}</div>
-    </section>
-    <section id="labs" aria-labelledby="labs-heading">
-      <h2 id="labs-heading">Labs ({{LAB_COUNT}})</h2>
-      <div class="directory">{{LABS}}</div>
-    </section>
-    <section id="publications" aria-labelledby="publications-heading">
-      <div class="section-heading"><h2 id="publications-heading">Publications</h2> <button id="refresh" type="button">Refresh</button></div>
-      <p id="sync-status" role="status"></p>
-      <div id="publication-list" aria-live="polite">{{PUBLICATIONS}}</div>
-    </section>
-  </main>
-  <footer><a href="https://github.com/12-Last-But-Not-Least/open-archive">Source code</a></footer>
+<body>
+  <p><a href="{{ROOT}}publications/">Publications</a></p>
 </body>
 </html>
