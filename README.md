@@ -17,7 +17,7 @@ Open http://localhost:8000. Use an HTTP server instead of opening HTML files dir
 
 ## Edit it
 
-- `web/index.html`: forwards the root URL to the publications page.
+- `web/index.html`: front page with just the site name and navigation.
 - `web/publications.html`: publication list.
 - `web/directory.html`: researcher and lab directories.
 - `web/researcher.html` and `web/lab.html`: page templates.
