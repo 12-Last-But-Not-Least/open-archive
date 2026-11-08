@@ -21,6 +21,24 @@
       <p id="identity"></p>
       <p id="profile"></p>
       <button id="logout" type="button">Sign out</button>
+      <details>
+        <summary>Your researcher profile</summary>
+        <form id="profile-edit">
+          <p><label for="profile-name">Full name</label> <input id="profile-name" required maxlength="120"></p>
+          <p><label for="profile-institution">Institution</label> <input id="profile-institution" maxlength="200"></p>
+          <fieldset><legend>Your labs</legend><div id="profile-labs"></div></fieldset>
+          <button type="submit">Save profile</button>
+        </form>
+      </details>
+      <details>
+        <summary>Add a lab</summary>
+        <form id="lab-create">
+          <p><label for="lab-name">Lab name</label> <input id="lab-name" required maxlength="200"></p>
+          <p><label for="lab-institution">Institution</label> <input id="lab-institution" required maxlength="200"></p>
+          <p><label for="lab-professor">Professor's full name</label> <input id="lab-professor" required maxlength="120"></p>
+          <button type="submit">Add lab</button>
+        </form>
+      </details>
       <section id="claim-section" hidden>
         <h2>Claim a researcher profile</h2>
         <p>Use the same full name on your Bluesky profile, then claim your profile here. Name matching links your account immediately; it does not verify your identity.</p>

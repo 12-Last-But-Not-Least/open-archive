@@ -454,3 +454,64 @@ def test_search_ranking_filters_unrelated_and_deduplicates():
     duplicate = {**exact, "arxivId": "", "url": "https://doi.org/10.1234/test"}
     assert rank_papers("Soham Phadke", [PAPER, exact, duplicate]) == [exact]
     assert rank_papers("N2D", [exact]) == [exact]
+
+
+def test_profile_and_lab_go_live_without_rebuild_and_survive_restart(setup):
+    client, app, network, _ = setup
+    assert client.put("/api/profile", json={"name": "New Researcher"}, headers=headers(client)).status_code == 401
+    login(client, network, "new.bsky.social")
+    lab_payload = {"name": "Live Lab", "institution": "University", "professorName": "Professor Person"}
+    response = client.post("/api/labs", json=lab_payload, headers=headers(client))
+    assert response.status_code == 200
+    lab = response.json()["lab"]
+    assert client.post("/api/labs", json=lab_payload, headers=headers(client)).status_code == 409
+    response = client.put("/api/profile", json={"name": "New <Researcher>", "institution": "University", "labIds": [lab["id"]]}, headers=headers(client))
+    assert response.status_code == 200
+    researcher = response.json()["researcher"]
+    assert researcher["did"] == OTHER
+    profile_id = researcher["id"]
+    assert client.get("/api/session").json()["researcher"]["id"] == profile_id
+    assert profile_id in client.get("/researchers/").text
+    assert lab["id"] in client.get("/labs/").text
+    page = client.get("/researchers/" + profile_id + "/")
+    assert page.status_code == 200 and "New &lt;Researcher&gt;" in page.text
+    assert "{{" not in page.text
+    lab_page = client.get("/labs/" + lab["id"] + "/")
+    assert "New &lt;Researcher&gt;" in lab_page.text and "{{" not in lab_page.text
+    assert client.get("/researchers/missing/").status_code == 404
+    assert client.get("/labs/missing/").status_code == 404
+    restarted = create_app(directory=app.state.database.path.parent, config=copy.deepcopy(CONFIG), catalog=[])
+    with TestClient(restarted, base_url=ORIGIN) as fresh:
+        directory = fresh.get("/data/site.json").json()
+        assert next(r for r in directory["researchers"] if r["id"] == profile_id)["name"] == "New <Researcher>"
+        assert next(l for l in directory["labs"] if l["id"] == lab["id"])["members"] == [profile_id]
+    assert client.put("/api/profile", json={"name": "Changed Name", "labIds": []}, headers=headers(client)).status_code == 200
+    directory = client.get("/data/site.json").json()
+    assert len([r for r in directory["researchers"] if r.get("did") == OTHER]) == 1
+    assert next(l for l in directory["labs"] if l["id"] == lab["id"])["members"] == []
+    assert client.put("/api/profile", json={"name": "Spoof", "did": DID}, headers=headers(client)).status_code == 422
+
+
+def test_lab_tag_requires_professor_even_for_direct_api_request(setup):
+    client, _, network, _ = setup
+    login(client, network)
+    labs = []
+    for name in ["Bryce Hackel", "Michael Yip"]:
+        lab = client.post("/api/labs", json={"name": name + " Lab", "institution": "University", "professorName": name}, headers=headers(client)).json()["lab"]
+        labs.append(lab)
+    client.get("/api/suggestions")
+    payload = {"papers": [{"id": PAPER["id"], "labIds": [labs[1]["id"]]}]}
+    denied = client.post("/api/publications", json=payload, headers=headers(client))
+    assert denied.status_code == 400 and "professor" in denied.json()["detail"]
+    assert not network["records"]
+    payload["papers"][0]["labIds"] = [labs[0]["id"]]
+    assert client.post("/api/publications", json=payload, headers=headers(client)).status_code == 200
+    assert network["records"][DID][0]["value"]["labIds"] == [labs[0]["id"]]
+
+
+def test_directory_storage_prevents_other_owner_overwrite(tmp_path):
+    database = Database(tmp_path)
+    database.save_directory_entry("labs", "lab", DID, {"name": "Original"})
+    with pytest.raises(ValueError):
+        database.save_directory_entry("labs", "lab", OTHER, {"name": "Changed"})
+    assert database.directory_entries("labs") == [{"name": "Original"}]

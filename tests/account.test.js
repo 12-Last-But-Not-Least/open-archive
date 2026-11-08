@@ -100,3 +100,16 @@ test("DOI preview stays unchecked when no researcher name is linked", async () =
   await settle();
   assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, false);
 });
+
+
+test("search shows publication year and only labs whose professor authored the paper", async () => {
+  const ui = account();
+  ui.run('session.labs = [{id: "arc", name: "ARC", professorNames: ["Michael Yip"]}, {id: "unknown", name: "No professor"}]; api = async () => ({papers: [{id: "yes", title: "Match", authors: ["MICHAEL  YIP"], publishedAt: "2022-09-08T00:00:00Z"}, {id: "no", title: "Other", authors: ["Soham Phadke"], labIds: ["arc"]}]});');
+  search(ui);
+  await settle();
+  const [matching, other] = ui.get("#suggestions").children;
+  assert.equal(matching.children[2].textContent, "Published 2022");
+  assert.equal(matching.children[4].children.length, 2);
+  assert.equal(matching.children[4].children[1].children[0].value, "arc");
+  assert.equal(other.children.length, 3, "no lab fieldset when professor is absent");
+});

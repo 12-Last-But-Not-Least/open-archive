@@ -142,6 +142,63 @@ function renderPublications(papers, target) {
   }
 }
 
+function renderProfile(config, page, id, root, apiRoot) {
+  if (!["researcher", "lab"].includes(page)) return;
+  const entry = config[page === "researcher" ? "researchers" : "labs"].find(item => item.id === id);
+  if (!entry) throw new Error("Profile not found");
+  document.querySelector(".profile h1").textContent = entry.name;
+  document.querySelector(".profile .institution").textContent = entry.institution || "";
+  document.title = entry.name + " · Open Archive";
+  const profileLink = (item, kind) => {
+    const anchor = element("a", item.name);
+    anchor.href = (apiRoot ? apiRoot + "/" : root) + kind + "/" + encodeURIComponent(item.id) + "/";
+    return anchor;
+  };
+  if (page === "researcher") {
+    const labs = config.labs.filter(lab => (lab.members || []).includes(id));
+    document.querySelector("#affiliations").replaceChildren(...labs.map(lab => {
+      const p = element("p");
+      p.append(profileLink(lab, "labs"));
+      return p;
+    }));
+    document.querySelector("#researcher-account").replaceChildren(entry.did ?
+      link("@" + entry.handle, "https://bsky.app/profile/" + encodeURIComponent(entry.did)) :
+      element("span", "No ATProto account linked yet."));
+  } else {
+    const members = config.researchers.filter(researcher => (entry.members || []).includes(researcher.id));
+    document.querySelector("#members-heading").textContent = "Researchers (" + members.length + ")";
+    document.querySelector("#lab-members").replaceChildren(...members.map(member => {
+      const row = element("div", null, "directory-item");
+      const heading = element("h3");
+      heading.append(profileLink(member, "researchers"));
+      row.append(heading, element("p", member.institution || ""));
+      return row;
+    }));
+  }
+}
+
+async function startDirectory() {
+  const {root, apiRoot, kind} = document.body.dataset;
+  const target = document.querySelector("#directory-list");
+  const status = document.querySelector("#directory-status");
+  try {
+    const config = await getJSON(apiRoot ? apiRoot + "/data/site.json" : root + "data/site.json");
+    target.replaceChildren();
+    for (const item of config[kind]) {
+      const row = element("div", null, "directory-item");
+      const heading = element("h3");
+      const anchor = element("a", item.name);
+      anchor.href = (apiRoot ? apiRoot + "/" : root) + kind + "/" + encodeURIComponent(item.id) + "/";
+      heading.append(anchor);
+      row.append(heading, element("p", item.institution || ""));
+      target.append(row);
+    }
+    status.textContent = config[kind].length ? "" : "No " + kind + " added yet.";
+  } catch {
+    status.textContent = "Could not refresh the directory. Reload to try again.";
+  }
+}
+
 async function start() {
   const {root, page, id, apiRoot} = document.body.dataset;
   const status = document.querySelector("#sync-status");
@@ -149,6 +206,7 @@ async function start() {
   const target = document.querySelector("#publication-list");
   try {
     const [config, imported] = await Promise.all([getJSON(apiRoot ? apiRoot + "/data/site.json" : root + "data/site.json"), getJSON(root + "data/papers.json")]);
+    renderProfile(config, page, id, root, apiRoot);
     const unclaimed = filterPublications(unclaimedPublications(imported, config.researchers), page, id);
     const researchers = config.researchers.filter(researcher => researcher.did && (page !== "researcher" || researcher.id === id));
     let refreshing = false;
@@ -181,4 +239,7 @@ async function start() {
   }
 }
 
-if (typeof document !== "undefined") start();
+if (typeof document !== "undefined") {
+  if (document.body.dataset.page === "directory") startDirectory();
+  else start();
+}

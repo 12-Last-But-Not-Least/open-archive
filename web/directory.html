@@ -5,14 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{TITLE}} · Open Archive</title>
   <link rel="stylesheet" href="{{ROOT}}assets/style.css">
+  <script type="module" src="{{ROOT}}assets/app.js"></script>
 </head>
-<body>
+<body data-page="directory" data-kind="{{KIND}}" data-root="{{ROOT}}" data-api-root="{{API_ROOT}}">
   <header>
     <nav aria-label="Main"><a href="{{ROOT}}">Open Archive</a> | <a href="{{ROOT}}researchers/" {{RESEARCHERS_CURRENT}}>Researchers</a> | <a href="{{ROOT}}labs/" {{LABS_CURRENT}}>Labs</a> | <a href="{{ROOT}}publications/">Publications</a>{{ACCOUNT_LINK}}</nav>
   </header>
   <main>
     <h1>{{TITLE}}</h1>
-    <div class="directory">{{ENTRIES}}</div>
+    <p id="directory-status" role="status"></p>
+    <div id="directory-list" class="directory">{{ENTRIES}}</div>
   </main>
   <footer><a href="https://github.com/12-Last-But-Not-Least/open-archive">Source code</a></footer>
 </body>

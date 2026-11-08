@@ -55,12 +55,17 @@ function renderSuggestions() {
     checkbox.checked = !checkbox.disabled && Boolean(normalizeName(selectionName)) &&
       (paper.authors || []).some(author => normalizeName(author) === normalizeName(selectionName));
     label.append(checkbox, document.createTextNode(" " + paper.title));
-    row.append(label, node("p", (paper.authors || []).join(", ")), paperLink({...paper, title: "View paper"}));
+    row.append(label, node("p", (paper.authors || []).join(", ")));
+    const year = new Date(paper.publishedAt).getUTCFullYear();
+    if (Number.isFinite(year)) row.append(node("p", "Published " + year));
+    row.append(paperLink({...paper, title: "View paper"}));
+    const eligibleLabs = session.labs.filter(lab => (lab.professorNames || []).some(name =>
+      (paper.authors || []).some(author => normalizeName(author) === normalizeName(name))));
     if (added(paper)) row.append(node("p", "Already added"));
-    else if (session.labs.length) {
+    else if (eligibleLabs.length) {
       const labs = node("fieldset");
       labs.append(node("legend", "Associated labs (optional)"));
-      for (const lab of session.labs) {
+      for (const lab of eligibleLabs) {
         const option = node("label");
         const input = node("input");
         input.type = "checkbox";
@@ -151,6 +156,19 @@ async function load() {
     $("#profile").append(link);
     $("#author").value = session.researcher.name;
   }
+  $("#profile-name").value = session.researcher?.name || "";
+  $("#profile-institution").value = session.researcher?.institution || "";
+  $("#profile-labs").replaceChildren();
+  for (const lab of session.labs) {
+    const label = node("label");
+    const input = node("input");
+    input.type = "checkbox";
+    input.name = "profile-lab";
+    input.value = lab.id;
+    input.checked = (lab.members || []).includes(session.researcher?.id);
+    label.append(input, document.createTextNode(" " + lab.name));
+    $("#profile-labs").append(label);
+  }
   $("#claim-section").hidden = Boolean(session.researcher) || (!session.researchers.length && !session.claim);
   $("#researcher").replaceChildren();
   for (const researcher of session.researchers) {
@@ -208,6 +226,29 @@ $("#search").addEventListener("submit", event => {
     renderSuggestions();
     if (!suggestions.length) $("#suggestions").replaceChildren(node("p", "No papers found."));
     status(data.warning || "");
+  });
+});
+$("#profile-edit").addEventListener("submit", event => {
+  event.preventDefault();
+  run(event.submitter, async () => {
+    await api("/api/profile", "PUT", {
+      name: $("#profile-name").value.trim(), institution: $("#profile-institution").value.trim(),
+      labIds: [...document.querySelectorAll('input[name="profile-lab"]:checked')].map(input => input.value),
+    });
+    await load();
+    status("Profile saved.");
+  });
+});
+$("#lab-create").addEventListener("submit", event => {
+  event.preventDefault();
+  run(event.submitter, async () => {
+    await api("/api/labs", "POST", {
+      name: $("#lab-name").value.trim(), institution: $("#lab-institution").value.trim(),
+      professorName: $("#lab-professor").value.trim(),
+    });
+    await load();
+    $("#lab-create").reset();
+    status("Lab added.");
   });
 });
 $("#import").addEventListener("submit", event => {

@@ -124,7 +124,7 @@ def main():
     })
     for kind in ("researchers", "labs"):
         render("directory.html", output / kind / "index.html", {
-            "ROOT": "../", "TITLE": kind.capitalize(),
+            "ROOT": "../", "TITLE": kind.capitalize(), "KIND": kind,
             "ENTRIES": directory(config[kind], kind, "../"),
             "RESEARCHERS_CURRENT": 'aria-current="page"' if kind == "researchers" else "",
             "LABS_CURRENT": 'aria-current="page"' if kind == "labs" else "",

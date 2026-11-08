@@ -32,6 +32,12 @@ class Database:
                 CREATE TABLE IF NOT EXISTS private_data (
                     key TEXT PRIMARY KEY, value BLOB NOT NULL, expires REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS directory_entries (
+                    kind TEXT NOT NULL, id TEXT NOT NULL, owner TEXT NOT NULL,
+                    value TEXT NOT NULL, PRIMARY KEY(kind, id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS researcher_owner
+                    ON directory_entries(owner) WHERE kind = 'researchers';
                 CREATE TABLE IF NOT EXISTS claims (
                     did TEXT PRIMARY KEY, handle TEXT NOT NULL, researcher_id TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL
@@ -65,6 +71,21 @@ class Database:
     def delete(self, key):
         with self.connect() as db:
             db.execute("DELETE FROM private_data WHERE key = ?", (key,))
+
+    def directory_entries(self, kind):
+        with self.connect() as db:
+            return [json.loads(row["value"]) for row in db.execute(
+                "SELECT value FROM directory_entries WHERE kind = ? ORDER BY id", (kind,))]
+
+    def save_directory_entry(self, kind, identifier, owner, value):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute("SELECT owner FROM directory_entries WHERE kind = ? AND id = ?",
+                                 (kind, identifier)).fetchone()
+            if current and current["owner"] != owner:
+                raise ValueError("This entry already belongs to another account.")
+            db.execute("INSERT INTO directory_entries VALUES (?, ?, ?, ?) ON CONFLICT(kind, id) DO UPDATE SET value=excluded.value",
+                       (kind, identifier, owner, json.dumps(value)))
 
     def claims(self):
         with self.connect() as db:
