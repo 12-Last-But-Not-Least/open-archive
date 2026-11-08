@@ -42,7 +42,7 @@ function renderSuggestions() {
   target.replaceChildren();
   const existing = new Set(publications.flatMap(keys));
   const added = paper => keys(paper).some(key => existing.has(key));
-  if (!suggestions.length) target.append(node("p", "No suggestions yet. Search by author name."));
+  if (!suggestions.length) target.append(node("p", "No suggestions yet. Search by name, title, or DOI."));
   for (const paper of suggestions) {
     const row = node("div");
     row.className = "publication";
@@ -89,14 +89,6 @@ $("#author").addEventListener("input", () => {
   updateAddButton();
   status("");
 });
-$("#doi").addEventListener("input", () => {
-  searchVersion++;
-  suggestions = [];
-  $("#suggestions").replaceChildren();
-  updateAddButton();
-  status("");
-});
-
 async function refreshPublications() {
   pdsLoaded = false;
   $("#add").disabled = true;
@@ -202,42 +194,20 @@ $("#search").addEventListener("submit", event => {
   $("#suggestions").replaceChildren();
   updateAddButton();
   run(event.submitter, async () => {
-    status("Searching arXiv…");
+    status("Searching…");
     let data;
     try {
-      data = await api("/api/arxiv/search", "POST", {author});
+      data = await api("/api/papers/search", "POST", {query: author});
     } catch (error) {
       if (version === searchVersion) throw error;
       return;
     }
     if (version !== searchVersion) return;
+    selectionName = data.kind === "doi" ? session.researcher?.name || "" : author;
     suggestions = data.papers;
     renderSuggestions();
     if (!suggestions.length) $("#suggestions").replaceChildren(node("p", "No papers found."));
-    status("");
-  });
-});
-$("#doi-search").addEventListener("submit", event => {
-  event.preventDefault();
-  const version = ++searchVersion;
-  const doi = $("#doi").value.trim();
-  selectionName = session.researcher?.name || "";
-  suggestions = [];
-  $("#suggestions").replaceChildren();
-  updateAddButton();
-  run(event.submitter, async () => {
-    status("Looking up DOI…");
-    let data;
-    try {
-      data = await api("/api/doi/lookup", "POST", {doi});
-    } catch (error) {
-      if (version === searchVersion) throw error;
-      return;
-    }
-    if (version !== searchVersion) return;
-    suggestions = data.papers;
-    renderSuggestions();
-    status("");
+    status(data.warning || "");
   });
 });
 $("#import").addEventListener("submit", event => {
@@ -255,4 +225,4 @@ $("#import").addEventListener("submit", event => {
     status(failed ? `${failed} paper(s) could not be added. You can retry them.` : "Papers added to your account.");
   });
 });
-load().catch(error => status(error.message));
+load().then(() => { $("#find-papers").disabled = false; }).catch(error => status(error.message));

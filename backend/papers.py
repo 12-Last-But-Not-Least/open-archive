@@ -58,6 +58,39 @@ async def lookup_doi(doi):
         return parse_crossref(response.json()["message"], doi)
 
 
+async def search_crossref(query, field):
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+        response = await client.get("https://api.crossref.org/works", params={
+            "query." + field: query, "rows": 20,
+        }, headers={"User-Agent": "open-archive/0.2 (+https://github.com/12-Last-But-Not-Least/open-archive)"})
+        response.raise_for_status()
+        papers = []
+        for item in response.json()["message"]["items"]:
+            try:
+                papers.append(parse_crossref(item, normalize_doi(item.get("DOI", ""))))
+            except (ValueError, TypeError, KeyError):
+                continue
+        return papers
+
+
+def rank_papers(query, papers):
+    tokens = set(re.findall(r"\w+", query.casefold()))
+    def fields(paper):
+        return [paper["title"], *paper.get("authors", [])]
+    def exact(paper):
+        return any(" ".join(value.casefold().split()) == " ".join(query.casefold().split()) for value in fields(paper))
+    ranked, seen = [], set()
+    for paper in sorted(papers, key=lambda p: not exact(p)):
+        if not tokens or not any(tokens <= set(re.findall(r"\w+", value.casefold())) for value in fields(paper)):
+            continue
+        identifiers = paper_keys(paper)
+        if identifiers & seen:
+            continue
+        seen.update(identifiers)
+        ranked.append(paper)
+    return ranked[:20]
+
+
 def paper_key(paper):
     if paper.get("arxivId"):
         return "arxiv:" + re.sub(r"v\d+$", "", paper["arxivId"])
@@ -151,14 +184,22 @@ class ArxivSearch:
         self.last_request = 0
 
     async def search(self, author):
+        return await self._search('au:"' + author + '"', "submittedDate")
+
+    async def search_all(self, query):
+        words = re.findall(r"\w+", query)
+        terms = " AND ".join('(au:"' + word + '" OR ti:"' + word + '")' for word in words)
+        return await self._search(terms, "relevance")
+
+    async def _search(self, query, sort):
         # One request at a time, with arXiv's required minimum interval.
         async with self.lock:
             await asyncio.sleep(max(0, 3 - (time.monotonic() - self.last_request)))
             try:
                 async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
                     response = await client.get("https://export.arxiv.org/api/query", params={
-                        "search_query": 'au:"' + author + '"', "max_results": 20,
-                        "sortBy": "submittedDate", "sortOrder": "descending",
+                        "search_query": query, "max_results": 20,
+                        "sortBy": sort, "sortOrder": "descending",
                     }, headers={"User-Agent": "open-archive/0.2 (+https://github.com/12-Last-But-Not-Least/open-archive)"})
                     response.raise_for_status()
                     return parse_arxiv(response.content)

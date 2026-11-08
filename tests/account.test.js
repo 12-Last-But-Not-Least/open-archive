@@ -14,6 +14,7 @@ function account() {
   const document = {
     querySelector(selector) {
       if (!selector.startsWith("#")) return null;
+      if (!readFileSync(new URL("../web/account.html", import.meta.url), "utf8").includes(`id="${selector.slice(1)}"`)) return null;
       if (!elements.has(selector)) elements.set(selector, element());
       return elements.get(selector);
     },
@@ -29,7 +30,9 @@ function account() {
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 function search(ui) {
-  ui.get("#search").listeners.submit({preventDefault() {}, submitter: {disabled: false}});
+  let prevented = false;
+  ui.get("#search").listeners.submit({preventDefault() { prevented = true; }, submitter: {disabled: false}});
+  assert.equal(prevented, true, "search must prevent page navigation");
 }
 
 test("a new author search replaces old results and does not select papers", async () => {
@@ -79,21 +82,21 @@ test("only an exact full author name is preselected", async () => {
 
 test("DOI lookup previews a paper using the linked name without publishing", async () => {
   const ui = account();
-  ui.run('var requests = []; session.researcher = {name: "Soham Phadke"}; api = async (path, method, body) => { requests.push({path, body}); return {papers: [{id: "doi:10.1234/test", title: "Paper", authors: ["Soham Phadke"]}]}; };');
-  ui.get("#doi").value = "https://doi.org/10.1234/test";
-  ui.get("#doi-search").listeners.submit({preventDefault() {}, submitter: {disabled: false}});
+  ui.run('var requests = []; session.researcher = {name: "Soham Phadke"}; api = async (path, method, body) => { requests.push({path, body}); return {kind: "doi", papers: [{id: "doi:10.1234/test", title: "Paper", authors: ["Soham Phadke"]}]}; };');
+  ui.get("#author").value = "https://doi.org/10.1234/test";
+  ui.get("#search").listeners.submit({preventDefault() {}, submitter: {disabled: false}});
   await settle();
   assert.equal(ui.run("requests.length"), 1);
-  assert.equal(ui.run("requests[0].path"), "/api/doi/lookup");
+  assert.equal(ui.run("requests[0].path"), "/api/papers/search");
   assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, true);
 });
 
 test("DOI preview stays unchecked when no researcher name is linked", async () => {
   const ui = account();
-  ui.run('api = async () => ({papers: [{id: "doi:10.1234/test", title: "Paper", authors: ["Soham Phadke"]}]});');
+  ui.run('api = async () => ({kind: "doi", papers: [{id: "doi:10.1234/test", title: "Paper", authors: ["Soham Phadke"]}]});');
   ui.get("#author").value = "Soham Phadke";
-  ui.get("#doi").value = "10.1234/test";
-  ui.get("#doi-search").listeners.submit({preventDefault() {}, submitter: {disabled: false}});
+  ui.get("#author").value = "10.1234/test";
+  ui.get("#search").listeners.submit({preventDefault() {}, submitter: {disabled: false}});
   await settle();
   assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, false);
 });

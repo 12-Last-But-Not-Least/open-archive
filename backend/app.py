@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -21,7 +21,7 @@ from .oauth import client_metadata, make_client
 from .network import get_json
 from .papers import COLLECTION, ArxivSearch, list_papers, make_record, paper_key, paper_keys, record_key, xrpc
 from .storage import Database, OAuthStore
-from .papers import normalize_doi, lookup_doi
+from .papers import normalize_doi, lookup_doi, search_crossref, rank_papers
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKIE = "open_archive_session"
@@ -45,6 +45,10 @@ class Claim(Input):
 
 class Search(Input):
     author: str = Field(min_length=2, max_length=120, pattern=r"^[\w .,'’\-]+$")
+
+
+class PaperSearch(Input):
+    query: str = Field(min_length=2, max_length=1000)
 
 
 class DoiLookup(Input):
@@ -158,7 +162,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
 
     @app.middleware("http")
     async def security(request, call_next):
-        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10}
+        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10, "/api/papers/search": 10}
         if request.url.path in limits and not rate_limit(request, limits[request.url.path]):
             return JSONResponse({"detail": "Too many requests. Try again in a minute."}, status_code=429,
                                 headers={"Retry-After": "60"})
@@ -323,6 +327,26 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         remember_suggestions(key, papers)
         return {"papers": [{**p, "id": paper_key(p)} for p in papers]}
 
+    @app.post("/api/papers/search")
+    async def paper_search(payload: PaperSearch, request: Request):
+        key, _, _, _ = await authenticated(request)
+        query = payload.query.strip()
+        if query.lower().startswith(("10.", "doi:", "https://", "http://")):
+            result = await doi_lookup(DoiLookup(doi=query), request)
+            return {**result, "kind": "doi"}
+        if not re.search(r"\w", query) or len(query) > 200:
+            raise HTTPException(400, "Enter an author name, paper title, or DOI.")
+        results = await asyncio.gather(searcher.search_all(query), search_crossref(query, "author"),
+                                       search_crossref(query, "title"), return_exceptions=True)
+        failures = [label for label, result in zip(["arXiv", "Crossref", "Crossref"], results)
+                    if isinstance(result, Exception)]
+        if len(failures) == len(results):
+            raise HTTPException(502, "Paper search is unavailable. Try again later.")
+        papers = rank_papers(query, [paper for result in results if not isinstance(result, Exception) for paper in result])
+        remember_suggestions(key, papers)
+        warning = "Some results are missing because " + " and ".join(dict.fromkeys(failures)) + " could not be reached. Try again." if failures else ""
+        return {"papers": [{**p, "id": paper_key(p)} for p in papers], "kind": "text", "warning": warning}
+
     @app.post("/api/doi/lookup")
     async def doi_lookup(payload: DoiLookup, request: Request):
         key, _, _, _ = await authenticated(request)
@@ -408,11 +432,13 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
 
     @app.get("/account/")
     async def account_page():
-        return FileResponse(ROOT / "web/account.html")
+        script_hash = hashlib.sha256((ROOT / "web/account.js").read_bytes()).hexdigest()[:16]
+        html = (ROOT / "web/account.html").read_text(encoding="utf-8").replace("/assets/account.js", "/assets/account.js?v=" + script_hash)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     @app.get("/assets/account.js")
     async def account_script():
-        return FileResponse(ROOT / "web/account.js", media_type="text/javascript")
+        return FileResponse(ROOT / "web/account.js", media_type="text/javascript", headers={"Cache-Control": "no-store"})
 
     # The same plain website is served alongside the API during development.
     app.mount("/", StaticFiles(directory=ROOT / "dist", html=True, check_dir=False), name="website")

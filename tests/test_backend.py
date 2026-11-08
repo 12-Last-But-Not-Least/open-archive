@@ -407,3 +407,50 @@ def test_refresh_rejects_changed_identity_before_persisting(monkeypatch, tmp_pat
             asyncio.run(client._make_token_request(params={"grant_type": "refresh_token"}))
     finally:
         refresh_did.reset(token)
+
+
+def test_combined_search_returns_crossref_when_arxiv_fails(setup, monkeypatch):
+    client, app, network, searcher = setup
+    async def unavailable(query):
+        raise RuntimeError("offline")
+    async def crossref(query, field):
+        assert query == "Soham Phadke"
+        return [{**PAPER, "authors": ["Soham Phadke"]}]
+    monkeypatch.setattr(searcher, "search_all", unavailable, raising=False)
+    monkeypatch.setattr("backend.app.search_crossref", crossref)
+    login(client, network)
+    response = client.post("/api/papers/search", json={"query": "Soham Phadke"}, headers=headers(client))
+    assert response.status_code == 200
+    assert len(response.json()["papers"]) == 1
+    assert "arXiv" in response.json()["warning"]
+    assert not network["records"]
+    async def failed(query, field):
+        raise RuntimeError("offline")
+    monkeypatch.setattr("backend.app.search_crossref", failed)
+    assert client.post("/api/papers/search", json={"query": "Soham Phadke"}, headers=headers(client)).status_code == 502
+
+
+def test_combined_doi_and_versioned_account_script(setup, monkeypatch):
+    import hashlib
+    from backend.app import ROOT
+    client, _, network, _ = setup
+    async def lookup(doi):
+        assert doi == "10.1234/test"
+        return {**PAPER, "doi": doi}
+    monkeypatch.setattr("backend.app.lookup_doi", lookup)
+    login(client, network)
+    response = client.post("/api/papers/search", json={"query": "https://doi.org/10.1234/test"}, headers=headers(client))
+    assert response.status_code == 200 and response.json()["kind"] == "doi"
+    page = client.get("/account/")
+    version = hashlib.sha256((ROOT / "web/account.js").read_bytes()).hexdigest()[:16]
+    assert '/assets/account.js?v=' + version in page.text
+    assert page.headers["cache-control"] == "no-store"
+    assert client.get('/assets/account.js?v=' + version).headers["cache-control"] == "no-store"
+
+
+def test_search_ranking_filters_unrelated_and_deduplicates():
+    from backend.papers import rank_papers
+    exact = {**PAPER, "authors": ["Soham Phadke"], "doi": "10.1234/test"}
+    duplicate = {**exact, "arxivId": "", "url": "https://doi.org/10.1234/test"}
+    assert rank_papers("Soham Phadke", [PAPER, exact, duplicate]) == [exact]
+    assert rank_papers("N2D", [exact]) == [exact]
