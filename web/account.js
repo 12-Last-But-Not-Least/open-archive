@@ -1,5 +1,7 @@
 let session, suggestions = [], publications = [], pdsLoaded = false;
 let searchVersion = 0;
+let selectionName = "";
+const normalizeName = name => String(name || "").normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 const $ = selector => document.querySelector(selector);
 const status = message => { $("#status").textContent = message; };
 function keys(paper) {
@@ -50,7 +52,8 @@ function renderSuggestions() {
     checkbox.name = "paper";
     checkbox.value = paper.id;
     checkbox.disabled = added(paper) || !pdsLoaded;
-    checkbox.checked = false;
+    checkbox.checked = !checkbox.disabled && Boolean(normalizeName(selectionName)) &&
+      (paper.authors || []).some(author => normalizeName(author) === normalizeName(selectionName));
     label.append(checkbox, document.createTextNode(" " + paper.title));
     row.append(label, node("p", (paper.authors || []).join(", ")), paperLink({...paper, title: "View paper"}));
     if (added(paper)) row.append(node("p", "Already added"));
@@ -80,6 +83,13 @@ function updateAddButton() {
 
 $("#suggestions").addEventListener("change", updateAddButton);
 $("#author").addEventListener("input", () => {
+  searchVersion++;
+  suggestions = [];
+  $("#suggestions").replaceChildren();
+  updateAddButton();
+  status("");
+});
+$("#doi").addEventListener("input", () => {
   searchVersion++;
   suggestions = [];
   $("#suggestions").replaceChildren();
@@ -158,6 +168,7 @@ async function load() {
   }
   $("#claim-status").textContent = session.claim?.status === "pending" ? "You have an earlier claim request. Match your Bluesky display name and claim again to link immediately." : "";
   ({papers: suggestions} = await api("/api/suggestions"));
+  selectionName = session.researcher?.name || "";
   await refreshPublications();
 }
 
@@ -186,6 +197,7 @@ $("#search").addEventListener("submit", event => {
   event.preventDefault();
   const version = ++searchVersion;
   const author = $("#author").value.trim();
+  selectionName = author;
   suggestions = [];
   $("#suggestions").replaceChildren();
   updateAddButton();
@@ -202,6 +214,29 @@ $("#search").addEventListener("submit", event => {
     suggestions = data.papers;
     renderSuggestions();
     if (!suggestions.length) $("#suggestions").replaceChildren(node("p", "No papers found."));
+    status("");
+  });
+});
+$("#doi-search").addEventListener("submit", event => {
+  event.preventDefault();
+  const version = ++searchVersion;
+  const doi = $("#doi").value.trim();
+  selectionName = session.researcher?.name || "";
+  suggestions = [];
+  $("#suggestions").replaceChildren();
+  updateAddButton();
+  run(event.submitter, async () => {
+    status("Looking up DOI…");
+    let data;
+    try {
+      data = await api("/api/doi/lookup", "POST", {doi});
+    } catch (error) {
+      if (version === searchVersion) throw error;
+      return;
+    }
+    if (version !== searchVersion) return;
+    suggestions = data.papers;
+    renderSuggestions();
     status("");
   });
 });

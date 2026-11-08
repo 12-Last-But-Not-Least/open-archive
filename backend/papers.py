@@ -5,12 +5,57 @@ import hashlib
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 from defusedxml import ElementTree
 
 COLLECTION = "io.github.12-last-but-not-least.publication"
 ATOM = {"a": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+
+
+def normalize_doi(value):
+    value = value.strip()
+    if value.lower().startswith(("https://", "http://")):
+        parsed = urlparse(value)
+        if parsed.hostname not in {"doi.org", "dx.doi.org"} or parsed.username or parsed.password or parsed.port:
+            raise ValueError("Enter a DOI or a doi.org link.")
+        value = unquote(parsed.path.lstrip("/"))
+    else:
+        value = re.sub(r"^doi:\s*", "", value, flags=re.I)
+    if not re.fullmatch(r"10\.\d{4,9}/[^\s]+", value) or len(value) > 500:
+        raise ValueError("Enter a valid DOI, such as 10.1109/GHTC55712.2022.9910606.")
+    return value.lower()
+
+
+def parse_crossref(data, doi):
+    if normalize_doi(data.get("DOI", "")) != doi:
+        raise ValueError("The metadata returned a different DOI.")
+    titles = data.get("title") or []
+    authors = [a.get("name") or " ".join(filter(None, [a.get("given"), a.get("family")]))
+               for a in data.get("author", [])]
+    authors = [name for name in authors if name.strip()]
+    dates = (data.get("published") or data.get("issued") or {}).get("date-parts", [])
+    if not titles or not titles[0].strip() or not authors or not dates or not dates[0]:
+        raise ValueError("This DOI is missing a title, authors, or publication date in Crossref.")
+    parts = dates[0]
+    published = datetime(parts[0], parts[1] if len(parts) > 1 else 1,
+                         parts[2] if len(parts) > 2 else 1, tzinfo=timezone.utc)
+    return {"id": "doi:" + doi, "doi": doi, "title": " ".join(titles[0].split()),
+            "authors": authors, "publishedAt": published.isoformat().replace("+00:00", "Z"),
+            "url": "https://doi.org/" + quote(doi, safe="/():;"),
+            "venue": (data.get("container-title") or [""])[0], "labIds": [], "source": "crossref"}
+
+
+async def lookup_doi(doi):
+    # Only contact Crossref; never fetch a user-supplied URL.
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+        response = await client.get("https://api.crossref.org/works/" + quote(doi, safe=""),
+                                    headers={"User-Agent": "open-archive/0.2 (+https://github.com/12-Last-But-Not-Least/open-archive)"})
+        if response.status_code == 404:
+            raise LookupError("DOI not found in Crossref. Check the DOI and try again.")
+        response.raise_for_status()
+        return parse_crossref(response.json()["message"], doi)
 
 
 def paper_key(paper):

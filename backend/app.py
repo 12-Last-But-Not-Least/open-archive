@@ -21,6 +21,7 @@ from .oauth import client_metadata, make_client
 from .network import get_json
 from .papers import COLLECTION, ArxivSearch, list_papers, make_record, paper_key, paper_keys, record_key, xrpc
 from .storage import Database, OAuthStore
+from .papers import normalize_doi, lookup_doi
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKIE = "open_archive_session"
@@ -44,6 +45,10 @@ class Claim(Input):
 
 class Search(Input):
     author: str = Field(min_length=2, max_length=120, pattern=r"^[\w .,'’\-]+$")
+
+
+class DoiLookup(Input):
+    doi: str = Field(min_length=1, max_length=1000)
 
 
 class Selection(Input):
@@ -153,7 +158,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
 
     @app.middleware("http")
     async def security(request, call_next):
-        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10}
+        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10}
         if request.url.path in limits and not rate_limit(request, limits[request.url.path]):
             return JSONResponse({"detail": "Too many requests. Try again in a minute."}, status_code=429,
                                 headers={"Retry-After": "60"})
@@ -317,6 +322,24 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             raise HTTPException(502, "arXiv search is unavailable. Try again later.") from None
         remember_suggestions(key, papers)
         return {"papers": [{**p, "id": paper_key(p)} for p in papers]}
+
+    @app.post("/api/doi/lookup")
+    async def doi_lookup(payload: DoiLookup, request: Request):
+        key, _, _, _ = await authenticated(request)
+        try:
+            doi = normalize_doi(payload.doi)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        try:
+            paper = await lookup_doi(doi)
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from None
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        except Exception:
+            raise HTTPException(502, "DOI lookup is unavailable. Try again later.") from None
+        remember_suggestions(key, [paper])
+        return {"papers": [paper]}
 
     @app.get("/api/publications")
     async def publications(request: Request):

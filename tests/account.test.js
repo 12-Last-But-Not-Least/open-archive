@@ -66,3 +66,34 @@ test("an empty search removes old papers", async () => {
   assert.equal(ui.run("suggestions.length"), 0);
   assert.equal(ui.get("#suggestions").children[0].textContent, "No papers found.");
 });
+
+test("only an exact full author name is preselected", async () => {
+  const ui = account();
+  ui.run('api = async () => ({papers: [{id: "exact", title: "Exact", authors: ["SOHAM  PHADKE"]}, {id: "partial", title: "Partial", authors: ["Soham"]}]});');
+  ui.get("#author").value = "Soham Phadke";
+  search(ui);
+  await settle();
+  const checked = ui.get("#suggestions").children.map(row => row.children[0].children[0].checked);
+  assert.deepEqual(checked, [true, false]);
+});
+
+test("DOI lookup previews a paper using the linked name without publishing", async () => {
+  const ui = account();
+  ui.run('var requests = []; session.researcher = {name: "Soham Phadke"}; api = async (path, method, body) => { requests.push({path, body}); return {papers: [{id: "doi:10.1234/test", title: "Paper", authors: ["Soham Phadke"]}]}; };');
+  ui.get("#doi").value = "https://doi.org/10.1234/test";
+  ui.get("#doi-search").listeners.submit({preventDefault() {}, submitter: {disabled: false}});
+  await settle();
+  assert.equal(ui.run("requests.length"), 1);
+  assert.equal(ui.run("requests[0].path"), "/api/doi/lookup");
+  assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, true);
+});
+
+test("DOI preview stays unchecked when no researcher name is linked", async () => {
+  const ui = account();
+  ui.run('api = async () => ({papers: [{id: "doi:10.1234/test", title: "Paper", authors: ["Soham Phadke"]}]});');
+  ui.get("#author").value = "Soham Phadke";
+  ui.get("#doi").value = "10.1234/test";
+  ui.get("#doi-search").listeners.submit({preventDefault() {}, submitter: {disabled: false}});
+  await settle();
+  assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, false);
+});

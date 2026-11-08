@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import COOKIE, create_app, normalized_name
 from backend.oauth import ArchiveOAuthClient, SCOPE, refresh_did
-from backend.papers import COLLECTION, parse_arxiv
+from backend.papers import COLLECTION, parse_arxiv, normalize_doi, parse_crossref
 from backend.storage import Database, OAuthStore
 
 ORIGIN = "http://127.0.0.1:8000"
@@ -296,6 +296,62 @@ def test_name_normalization():
     assert normalized_name("  SOHAM\t Phadke ") == normalized_name("Soham Phadke")
     assert normalized_name("Jose\u0301") == normalized_name("Jos\u00e9")
     assert normalized_name("Jay Smith") != normalized_name("Jay")
+
+
+@pytest.mark.parametrize("value", ["10.1109/GHTC55712.2022.9910606", "doi:10.1109/GHTC55712.2022.9910606",
+                                    "https://doi.org/10.1109/GHTC55712.2022.9910606"])
+def test_doi_inputs(value):
+    assert normalize_doi(value) == "10.1109/ghtc55712.2022.9910606"
+
+
+@pytest.mark.parametrize("value", ["https://evil.example/10.1234/test", "not a DOI", "10.1234/a b",
+                                    "https://doi.org@evil.example/10.1234/test"])
+def test_doi_rejects_invalid_inputs(value):
+    with pytest.raises(ValueError):
+        normalize_doi(value)
+
+
+def test_crossref_metadata():
+    data = {"DOI": "10.1234/TEST", "title": ["A paper"], "author": [{"given": "Soham", "family": "Phadke"}],
+            "published": {"date-parts": [[2022]]}, "container-title": ["Conference"]}
+    paper = parse_crossref(data, "10.1234/test")
+    assert paper["authors"] == ["Soham Phadke"]
+    assert paper["publishedAt"] == "2022-01-01T00:00:00Z"
+    assert paper["doi"] == "10.1234/test"
+    with pytest.raises(ValueError):
+        parse_crossref(data, "10.1234/different")
+    with pytest.raises(ValueError):
+        parse_crossref({**data, "author": []}, "10.1234/test")
+
+
+def test_doi_lookup_preview_then_publish_and_deduplicate(setup, monkeypatch):
+    client, _, network, _ = setup
+    paper = {**PAPER, "id": "doi:10.1234/test", "doi": "10.1234/test", "url": "https://doi.org/10.1234/test"}
+    paper.pop("arxivId")
+    async def lookup(doi):
+        assert doi == "10.1234/test"
+        return paper
+    monkeypatch.setattr("backend.app.lookup_doi", lookup)
+    assert client.post("/api/doi/lookup", json={"doi": "10.1234/test"}, headers=headers(client)).status_code == 401
+    login(client, network)
+    response = client.post("/api/doi/lookup", json={"doi": "https://doi.org/10.1234/TEST"}, headers=headers(client))
+    assert response.status_code == 200
+    assert response.json()["papers"][0]["id"] == paper["id"]
+    assert network["records"] == {}  # Lookup does not publish.
+    payload = {"papers": [{"id": paper["id"], "labIds": []}]}
+    assert client.post("/api/publications", json=payload, headers=headers(client)).json()["results"][0]["status"] == "added"
+    assert network["records"][DID][0]["value"]["doi"] == "10.1234/test"
+    assert client.post("/api/publications", json=payload, headers=headers(client)).json()["results"][0]["status"] == "already-added"
+
+
+@pytest.mark.parametrize("error,status", [(LookupError("Not found"), 404), (ValueError("Missing metadata"), 422), (OSError(), 502)])
+def test_doi_lookup_errors(setup, monkeypatch, error, status):
+    client, _, network, _ = setup
+    async def lookup(doi):
+        raise error
+    monkeypatch.setattr("backend.app.lookup_doi", lookup)
+    login(client, network)
+    assert client.post("/api/doi/lookup", json={"doi": "10.1234/test"}, headers=headers(client)).status_code == status
 
 
 def test_competing_claims_have_one_winner(tmp_path):
