@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import time
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -17,11 +18,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .oauth import client_metadata, make_client
+from .network import get_json
 from .papers import COLLECTION, ArxivSearch, list_papers, make_record, paper_key, paper_keys, record_key, xrpc
 from .storage import Database, OAuthStore
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKIE = "open_archive_session"
+
+
+def normalized_name(value):
+    return " ".join(unicodedata.normalize("NFC", value).casefold().split()) if isinstance(value, str) else ""
 
 
 class Input(BaseModel):
@@ -272,8 +278,25 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         researcher = next((r for r in public_config()["researchers"] if r["id"] == payload.researcherId), None)
         if researcher is None or researcher.get("did"):
             raise HTTPException(409, "This profile is unavailable to claim.")
-        database.request_claim(session.did, session.handle, researcher["id"])
-        return {"status": "pending", "message": "Requested. Contact the site maintainer for email verification."}
+        # Read the signed-in DID's public profile, never a browser-supplied name.
+        try:
+            profile = await get_json(session.pds_url.rstrip("/") + "/xrpc/com.atproto.repo.getRecord",
+                                     params={"repo": session.did, "collection": "app.bsky.actor.profile", "rkey": "self"})
+        except Exception:
+            raise HTTPException(502, "Could not read your Bluesky profile. Make sure it has a display name and try again.") from None
+        if profile.get("uri") != f"at://{session.did}/app.bsky.actor.profile/self":
+            raise HTTPException(502, "The account provider returned a different profile. Try again later.")
+        name = normalized_name(profile.get("value", {}).get("displayName"))
+        if not name or name != normalized_name(researcher["name"]):
+            raise HTTPException(403, "Your Bluesky display name must match this researcher's full name.")
+        matches = [r for r in public_config()["researchers"] if normalized_name(r["name"]) == name]
+        if len(matches) != 1:
+            raise HTTPException(409, "More than one researcher has this name. This profile cannot be claimed by name alone.")
+        try:
+            database.claim_by_name(session.did, session.handle, researcher["id"])
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from None
+        return {"status": "approved", "message": "Profile claimed. You can now manage your publications."}
 
     @app.get("/api/suggestions")
     async def suggestions(request: Request):

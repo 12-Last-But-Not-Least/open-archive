@@ -78,6 +78,15 @@ class Database:
             db.execute("INSERT OR REPLACE INTO claims VALUES (?, ?, ?, 'pending', ?)",
                        (did, handle, researcher_id, time.time()))
 
+    def claim_by_name(self, did, handle, researcher_id):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM claims WHERE status = 'approved' AND (did = ? OR researcher_id = ?)",
+                          (did, researcher_id)).fetchone():
+                raise ValueError("This account or profile has already been linked.")
+            db.execute("INSERT OR REPLACE INTO claims VALUES (?, ?, ?, 'approved', ?)",
+                       (did, handle, researcher_id, time.time()))
+
 
 class OAuthStore:
     """One OAuth grant per browser session, including separate DPoP keys."""

@@ -142,7 +142,7 @@ async function load() {
     option.value = researcher.id;
     $("#researcher").append(option);
   }
-  $("#claim-status").textContent = session.claim?.status === "pending" ? "Pending email verification by the site maintainer." : "";
+  $("#claim-status").textContent = session.claim?.status === "pending" ? "You have an earlier claim request. Match your Bluesky display name and claim again to link immediately." : "";
   ({papers: suggestions} = await api("/api/suggestions"));
   await refreshPublications();
 }
@@ -165,7 +165,7 @@ $("#claim").addEventListener("submit", event => {
   run(event.submitter, async () => {
     await api("/api/claims", "POST", {researcherId: $("#researcher").value});
     await load();
-    status("Profile requested. Contact the site maintainer for email verification.");
+    status("Profile claimed. You can now manage your publications.");
   });
 });
 $("#search").addEventListener("submit", event => {

@@ -8,8 +8,7 @@ from atproto_oauth.models import OAuthSession, OAuthState
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
 
-from backend.app import COOKIE, create_app
-from backend.claims import approve
+from backend.app import COOKIE, create_app, normalized_name
 from backend.oauth import ArchiveOAuthClient, SCOPE, refresh_did
 from backend.papers import COLLECTION, parse_arxiv
 from backend.storage import Database, OAuthStore
@@ -231,18 +230,86 @@ def test_partial_import_reports_successes_and_can_retry(setup):
     assert len(network["records"][DID]) == 1
 
 
-def test_claim_is_pending_until_maintainer_approval(setup):
+def test_claim_links_matching_name_immediately(setup, monkeypatch):
     client, app, network, _ = setup
+    async def profile(url, **kwargs):
+        assert kwargs["params"] == {"repo": OTHER, "collection": "app.bsky.actor.profile", "rkey": "self"}
+        return {"uri": f"at://{OTHER}/app.bsky.actor.profile/self", "value": {"displayName": "  JAY  "}}
+    monkeypatch.setattr("backend.app.get_json", profile)
     login(client, network, "jay.bsky.social")
     assert client.post("/api/claims", json={"researcherId": "bryce-hackel"}, headers=headers(client)).status_code == 409
-    assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 200
-    assert not client.get("/data/site.json").json()["researchers"][1]["did"]
-    assert client.get("/api/session").json()["researcher"] is None
-    approve(app.state.database, CONFIG, OTHER, "jay")
+    app.state.database.request_claim(OTHER, "jay.bsky.social", "jay")
+    response = client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client))
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
     assert client.get("/data/site.json").json()["researchers"][1]["did"] == OTHER
     assert client.get("/api/session").json()["researcher"]["id"] == "jay"
+    assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 409
+
+
+@pytest.mark.parametrize("name", ["Bryce Hackel", "", None, "Jay Smith"])
+def test_claim_rejects_nonmatching_or_missing_names(setup, monkeypatch, name):
+    client, app, network, _ = setup
+    async def profile(*args, **kwargs):
+        return {"uri": f"at://{OTHER}/app.bsky.actor.profile/self", "value": {"displayName": name}}
+    monkeypatch.setattr("backend.app.get_json", profile)
+    login(client, network, "jay.bsky.social")
+    assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 403
+    assert app.state.database.claims() == []
+
+
+def test_claim_rejects_duplicate_names(tmp_path, monkeypatch):
+    config = copy.deepcopy(CONFIG)
+    config["researchers"].append({"id": "other-jay", "name": " JAY ", "did": ""})
+    network = {"requests": [], "records": {}, "revoked": []}
+    async def profile(*args, **kwargs):
+        return {"uri": f"at://{OTHER}/app.bsky.actor.profile/self", "value": {"displayName": "Jay"}}
+    monkeypatch.setattr("backend.app.get_json", profile)
+    app = create_app(directory=tmp_path, config=config, oauth_factory=lambda *args: FakeOAuth(*args, network))
+    with TestClient(app, base_url=ORIGIN) as client:
+        login(client, network, "jay.bsky.social")
+        assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 409
+        assert app.state.database.claims() == []
+
+
+def test_claim_does_not_link_when_profile_lookup_fails(setup, monkeypatch):
+    client, app, network, _ = setup
+    async def profile(*args, **kwargs):
+        raise OSError("PDS unavailable")
+    monkeypatch.setattr("backend.app.get_json", profile)
+    login(client, network, "jay.bsky.social")
+    assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 502
+    assert app.state.database.claims() == []
+
+
+def test_claim_storage_protects_both_account_and_profile(tmp_path):
+    database = Database(tmp_path)
+    database.claim_by_name(OTHER, "jay.bsky.social", "jay")
     with pytest.raises(ValueError):
-        approve(app.state.database, CONFIG, OTHER, "bryce-hackel")
+        database.claim_by_name(DID, "another.bsky.social", "jay")
+    with pytest.raises(ValueError):
+        database.claim_by_name(OTHER, "jay.bsky.social", "another-profile")
+    assert Database(tmp_path).claims()[0]["did"] == OTHER
+
+
+def test_name_normalization():
+    assert normalized_name("  SOHAM\t Phadke ") == normalized_name("Soham Phadke")
+    assert normalized_name("Jose\u0301") == normalized_name("Jos\u00e9")
+    assert normalized_name("Jay Smith") != normalized_name("Jay")
+
+
+def test_competing_claims_have_one_winner(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    database = Database(tmp_path)
+    def claim(did):
+        try:
+            database.claim_by_name(did, "jay.bsky.social", "jay")
+            return True
+        except ValueError:
+            return False
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(claim, [DID, OTHER])) == [False, True]
+    assert len(database.claims()) == 1
 
 
 def test_store_survives_restart_and_expires_states(tmp_path):

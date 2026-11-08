@@ -88,14 +88,9 @@ python3 scripts/link_account.py your-handle.bsky.social --researcher bryce-hacke
 
 This maintainer script only reads public account details and saves the handle and DID in `data/site.json`. It needs no password and does not verify the human's identity. Use it only after approval. Adding a different person starts with a researcher entry in that file, with empty `handle` and `did` fields. Lab membership changes are made in `data/site.json` after manual email approval.
 
-In the backend prototype, an unlinked account can request an existing unclaimed profile. Requests remain pending until a maintainer manually verifies the researcher by email and runs:
+An unlinked account can claim an existing unclaimed profile immediately when its Bluesky display name matches the researcher's full name. Select your profile on the account page and click **Claim profile**. The server reads the public profile record from the signed-in account's PDS, ignoring capitalization and extra whitespace when comparing names. Missing or different names, duplicate researcher names, and already-linked profiles are rejected. Existing pending requests can be resubmitted; no maintainer approval is required.
 
-```bash
-.venv/bin/python -m backend.claims list
-.venv/bin/python -m backend.claims approve did:plc:EXAMPLE researcher-id
-```
-
-No approval emails are sent automatically. Signing in alone does not claim a researcher profile. An approved profile keeps its existing URL; its publications come from the linked PDS. The backend serves approved mappings immediately. When the GitHub Pages build is connected to the backend, it also reads those mappings. Without a backend URL, updating the static site's mappings requires updating `data/site.json` and pushing. Bryce's existing DID and both published records remain in place.
+Name matching is an MVP convenience, not identity verification: display names can be changed or copied. Signing in alone does not claim a profile. A claimed profile keeps its URL and reads publications from its linked PDS. The backend serves these mappings immediately; GitHub Pages also reads them when configured with the backend URL. Without a backend URL, static mappings require updating `data/site.json` and pushing. Bryce's existing DID and records remain in place. The `backend.claims` CLI remains available for legacy pending requests.
 
 ## Deploy the backend automatically
 
@@ -130,7 +125,7 @@ node --test tests/*.test.js
 python3 scripts/build.py
 ```
 
-Tests use a fake authorization server and PDS to cover session isolation, callback binding, CSRF, manual claim approval, selected imports, duplicate prevention, and deletion. They do not write to real accounts. If unrelated system pytest plugins are installed (for example ROS), prefix the Python test command with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`.
+Tests use a fake authorization server and PDS to cover session isolation, callback binding, CSRF, name-matched claims, selected imports, duplicate prevention, and deletion. They do not write to real accounts. If unrelated system pytest plugins are installed (for example ROS), prefix the Python test command with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`.
 
 ## Data sources
 
