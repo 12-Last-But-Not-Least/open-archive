@@ -1,4 +1,5 @@
 let session, suggestions = [], publications = [], pdsLoaded = false;
+let searchVersion = 0;
 const $ = selector => document.querySelector(selector);
 const status = message => { $("#status").textContent = message; };
 function keys(paper) {
@@ -49,7 +50,7 @@ function renderSuggestions() {
     checkbox.name = "paper";
     checkbox.value = paper.id;
     checkbox.disabled = added(paper) || !pdsLoaded;
-    checkbox.checked = !checkbox.disabled;
+    checkbox.checked = false;
     label.append(checkbox, document.createTextNode(" " + paper.title));
     row.append(label, node("p", (paper.authors || []).join(", ")), paperLink({...paper, title: "View paper"}));
     if (added(paper)) row.append(node("p", "Already added"));
@@ -70,8 +71,21 @@ function renderSuggestions() {
     }
     target.append(row);
   }
-  $("#add").disabled = !pdsLoaded || !suggestions.some(paper => !added(paper));
+  updateAddButton();
 }
+
+function updateAddButton() {
+  $("#add").disabled = !pdsLoaded || !document.querySelector('input[name="paper"]:checked:not(:disabled)');
+}
+
+$("#suggestions").addEventListener("change", updateAddButton);
+$("#author").addEventListener("input", () => {
+  searchVersion++;
+  suggestions = [];
+  $("#suggestions").replaceChildren();
+  updateAddButton();
+  status("");
+});
 
 async function refreshPublications() {
   pdsLoaded = false;
@@ -170,12 +184,25 @@ $("#claim").addEventListener("submit", event => {
 });
 $("#search").addEventListener("submit", event => {
   event.preventDefault();
+  const version = ++searchVersion;
+  const author = $("#author").value.trim();
+  suggestions = [];
+  $("#suggestions").replaceChildren();
+  updateAddButton();
   run(event.submitter, async () => {
     status("Searching arXiv…");
-    const data = await api("/api/arxiv/search", "POST", {author: $("#author").value.trim()});
-    suggestions = [...new Map([...suggestions, ...data.papers].map(paper => [paper.id, paper])).values()];
+    let data;
+    try {
+      data = await api("/api/arxiv/search", "POST", {author});
+    } catch (error) {
+      if (version === searchVersion) throw error;
+      return;
+    }
+    if (version !== searchVersion) return;
+    suggestions = data.papers;
     renderSuggestions();
-    status(data.papers.length + " results. Choose papers to add.");
+    if (!suggestions.length) $("#suggestions").replaceChildren(node("p", "No papers found."));
+    status("");
   });
 });
 $("#import").addEventListener("submit", event => {
