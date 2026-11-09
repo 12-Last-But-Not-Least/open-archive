@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -53,7 +54,14 @@ async def lookup_doi(doi):
         response = await client.get("https://api.crossref.org/works/" + quote(doi, safe=""),
                                     headers={"User-Agent": "open-archive/0.2 (+https://github.com/12-Last-But-Not-Least/open-archive)"})
         if response.status_code == 404:
-            raise LookupError("DOI not found in Crossref. Check the DOI and try again.")
+            response = await client.get("https://api.datacite.org/dois/" + quote(doi, safe=""))
+            if response.status_code == 404:
+                raise LookupError("DOI not found. Check the DOI and try again.")
+            response.raise_for_status()
+            paper = parse_datacite(response.json()["data"])
+            if paper["doi"] != doi:
+                raise ValueError("The metadata returned a different DOI.")
+            return paper
         response.raise_for_status()
         return parse_crossref(response.json()["message"], doi)
 
@@ -69,6 +77,100 @@ async def search_crossref(query, field):
             try:
                 papers.append(parse_crossref(item, normalize_doi(item.get("DOI", ""))))
             except (ValueError, TypeError, KeyError):
+                continue
+        return papers
+
+
+def metadata_paper(title, authors, date, url, source, doi="", venue=""):
+    if not isinstance(title, str) or not title.strip() or not authors:
+        raise ValueError("Missing title or authors")
+    parsed = urlparse(url or "")
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Invalid paper link")
+    published = datetime.fromisoformat(date.replace("Z", "+00:00"))
+    paper = {"title": " ".join(title.split()), "authors": authors,
+             "publishedAt": published.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+             "url": url, "source": source, "labIds": [], "venue": venue}
+    if doi:
+        paper["doi"] = normalize_doi(doi)
+    if parsed.hostname in {"arxiv.org", "www.arxiv.org"} and parsed.path.startswith("/abs/"):
+        identifier = re.sub(r"v\d+$", "", parsed.path[5:])
+        if re.fullmatch(r"(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})", identifier):
+            paper["arxivId"] = identifier
+    paper["id"] = paper_key(paper)
+    return paper
+
+
+def parse_openalex(item):
+    authors = [a.get("author", {}).get("display_name", "").strip() for a in item.get("authorships", [])]
+    authors = [name for name in authors if name]
+    location = item.get("primary_location") or {}
+    url = location.get("landing_page_url") or item.get("doi") or item.get("id")
+    if not url or not url.startswith("https://"):
+        url = item.get("doi") or item.get("id")
+    return metadata_paper(item.get("title"), authors, item.get("publication_date", ""), url,
+                          "openalex", item.get("doi") or "", (location.get("source") or {}).get("display_name", ""))
+
+
+async def search_openalex(query, field):
+    headers = {"User-Agent": "open-archive/0.2 (+https://github.com/12-Last-But-Not-Least/open-archive)"}
+    if os.environ.get("OPENALEX_API_KEY"):
+        headers["Authorization"] = "Bearer " + os.environ["OPENALEX_API_KEY"]
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False, headers=headers) as client:
+        params = {"per-page": 20, "search": query}
+        if field == "author":
+            response = await client.get("https://api.openalex.org/authors", params={"search": query, "per-page": 10})
+            response.raise_for_status()
+            tokens = set(re.findall(r"\w+", query.casefold()))
+            ids = [a["id"].rsplit("/", 1)[-1] for a in response.json()["results"]
+                   if re.fullmatch(r"https://openalex.org/A\d+", a.get("id", "")) and
+                   tokens <= set(re.findall(r"\w+", a.get("display_name", "").casefold()))]
+            if not ids:
+                return []
+            params = {"per-page": 20, "filter": "authorships.author.id:" + "|".join(ids)}
+        response = await client.get("https://api.openalex.org/works", params=params)
+        response.raise_for_status()
+        papers = []
+        for item in response.json()["results"]:
+            try:
+                papers.append(parse_openalex(item))
+            except (ValueError, TypeError, KeyError, AttributeError):
+                continue
+        return papers
+
+
+def parse_datacite(item):
+    data = item["attributes"]
+    if (data.get("types") or {}).get("resourceTypeGeneral") not in {
+        "Text", "JournalArticle", "ConferencePaper", "ConferenceProceeding", "Preprint", "Dissertation", "Report", "Book", "BookChapter"}:
+        raise ValueError("Not a written research work")
+    doi = normalize_doi(data["doi"])
+    authors = []
+    for creator in data.get("creators", []):
+        name = " ".join(filter(None, [creator.get("givenName"), creator.get("familyName")])) or creator.get("name", "")
+        if "," in name and not creator.get("givenName") and creator.get("nameType") != "Organizational":
+            family, given = name.split(",", 1)
+            name = given.strip() + " " + family.strip()
+        if name.strip():
+            authors.append(name.strip())
+    year = int(data["publicationYear"])
+    return metadata_paper(data["titles"][0]["title"], authors, f"{year:04d}-01-01",
+                          "https://doi.org/" + quote(doi, safe="/():;"), "datacite", doi)
+
+
+async def search_datacite(query):
+    terms = " AND ".join('"' + token + '"' for token in re.findall(r"\w+", query))
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+        response = await client.get("https://api.datacite.org/dois", params={
+            "query": f"(creators.name:({terms}) OR titles.title:({terms})) AND types.resourceTypeGeneral:(Text OR JournalArticle OR ConferencePaper OR ConferenceProceeding OR Preprint OR Dissertation OR Report OR Book OR BookChapter)",
+            "page[size]": 20,
+        })
+        response.raise_for_status()
+        papers = []
+        for item in response.json()["data"]:
+            try:
+                papers.append(parse_datacite(item))
+            except (ValueError, TypeError, KeyError, IndexError, AttributeError):
                 continue
         return papers
 

@@ -86,7 +86,13 @@ class FakeSearch:
 
 
 @pytest.fixture
-def setup(tmp_path):
+def setup(tmp_path, monkeypatch):
+    async def empty_openalex(query, field):
+        return []
+    async def empty_datacite(query):
+        return []
+    monkeypatch.setattr("backend.app.search_openalex", empty_openalex)
+    monkeypatch.setattr("backend.app.search_datacite", empty_datacite)
     network = {"requests": [], "records": {}, "revoked": []}
     searcher = FakeSearch()
     app = create_app(directory=tmp_path, config=copy.deepcopy(CONFIG), catalog=[copy.deepcopy(PAPER)],
@@ -427,6 +433,8 @@ def test_combined_search_returns_crossref_when_arxiv_fails(setup, monkeypatch):
     async def failed(query, field):
         raise RuntimeError("offline")
     monkeypatch.setattr("backend.app.search_crossref", failed)
+    monkeypatch.setattr("backend.app.search_openalex", failed)
+    monkeypatch.setattr("backend.app.search_datacite", unavailable)
     assert client.post("/api/papers/search", json={"query": "Soham Phadke"}, headers=headers(client)).status_code == 502
 
 
@@ -515,3 +523,55 @@ def test_directory_storage_prevents_other_owner_overwrite(tmp_path):
     with pytest.raises(ValueError):
         database.save_directory_entry("labs", "lab", OTHER, {"name": "Changed"})
     assert database.directory_entries("labs") == [{"name": "Original"}]
+
+
+def test_new_sources_normalize_authors_and_identifiers():
+    from backend.papers import parse_openalex, parse_datacite, rank_papers
+    paper = parse_openalex({"id": "https://openalex.org/W123", "title": "Test paper", "doi": "https://doi.org/10.1234/TEST",
+        "publication_date": "2024-04-10", "authorships": [{"author": {"display_name": "Example Author"}}],
+        "primary_location": {"landing_page_url": "https://arxiv.org/abs/2409.07786v2"}})
+    assert paper["arxivId"] == "2409.07786" and paper["doi"] == "10.1234/test"
+    item = {"attributes": {"doi": "10.1234/test", "titles": [{"title": "Test paper"}], "publicationYear": 2024,
+        "creators": [{"name": "Author, Example", "nameType": "Personal"}], "types": {"resourceTypeGeneral": "Text", "resourceType": "Poster"}}}
+    poster = parse_datacite(item)
+    assert poster["authors"] == ["Example Author"] and poster["source"] == "datacite"
+    assert rank_papers("Example Author", [paper, poster]) == [paper]
+    item["attributes"]["types"]["resourceTypeGeneral"] = "Dataset"
+    with pytest.raises(ValueError):
+        parse_datacite(item)
+
+
+def test_new_source_results_can_be_added_to_publications(setup, monkeypatch):
+    client, _, network, searcher = setup
+    async def empty(*args):
+        return []
+    async def datacite(query):
+        return [{"title": "Example Poster", "authors": ["Example Author"], "doi": "10.1234/poster",
+                 "url": "https://doi.org/10.1234/poster", "publishedAt": "2024-01-01T00:00:00Z", "source": "datacite"}]
+    monkeypatch.setattr(searcher, "search_all", empty, raising=False)
+    monkeypatch.setattr("backend.app.search_crossref", empty)
+    monkeypatch.setattr("backend.app.search_datacite", datacite)
+    login(client, network)
+    response = client.post("/api/papers/search", json={"query": "Example Author"}, headers=headers(client))
+    assert response.status_code == 200 and response.json()["warning"] == ""
+    result = response.json()["papers"][0]
+    assert result["id"] == "doi:10.1234/poster"
+    response = client.post("/api/publications", json={"papers": [{"id": result["id"]}]}, headers=headers(client))
+    assert response.status_code == 200
+    assert network["records"][DID][0]["value"]["title"] == "Example Poster"
+
+
+def test_doi_falls_back_to_datacite(monkeypatch):
+    from backend import papers
+    calls = []
+    def handle(request):
+        calls.append(request.url.host)
+        if request.url.host == "api.crossref.org":
+            return httpx.Response(404)
+        return httpx.Response(200, json={"data": {"attributes": {"doi": "10.1234/poster",
+            "titles": [{"title": "Research poster"}], "publicationYear": 2024,
+            "creators": [{"name": "Example Author"}], "types": {"resourceTypeGeneral": "Text"}}}})
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(papers.httpx, "AsyncClient", lambda **kwargs: client_class(transport=httpx.MockTransport(handle), **kwargs))
+    result = asyncio.run(papers.lookup_doi("10.1234/poster"))
+    assert result["source"] == "datacite" and calls == ["api.crossref.org", "api.datacite.org"]

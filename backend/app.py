@@ -22,7 +22,7 @@ from .oauth import client_metadata, make_client
 from .network import get_json
 from .papers import COLLECTION, ArxivSearch, list_papers, make_record, paper_key, paper_keys, record_key, xrpc
 from .storage import Database, OAuthStore
-from .papers import normalize_doi, lookup_doi, search_crossref, rank_papers
+from .papers import normalize_doi, lookup_doi, search_crossref, rank_papers, search_openalex, search_datacite
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKIE = "open_archive_session"
@@ -396,8 +396,9 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         if not re.search(r"\w", query) or len(query) > 200:
             raise HTTPException(400, "Enter an author name, paper title, or DOI.")
         results = await asyncio.gather(searcher.search_all(query), search_crossref(query, "author"),
-                                       search_crossref(query, "title"), return_exceptions=True)
-        failures = [label for label, result in zip(["arXiv", "Crossref", "Crossref"], results)
+                                       search_crossref(query, "title"), search_openalex(query, "author"),
+                                       search_openalex(query, "title"), search_datacite(query), return_exceptions=True)
+        failures = [label for label, result in zip(["arXiv", "Crossref", "Crossref", "OpenAlex", "OpenAlex", "DataCite"], results)
                     if isinstance(result, Exception)]
         if len(failures) == len(results):
             raise HTTPException(502, "Paper search is unavailable. Try again later.")
