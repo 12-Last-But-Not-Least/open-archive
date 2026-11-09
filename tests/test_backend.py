@@ -581,32 +581,32 @@ def test_doi_falls_back_to_datacite(monkeypatch):
     assert result["source"] == "datacite" and calls == ["api.crossref.org", "api.datacite.org"]
 
 
-def test_login_creates_profile_from_bluesky_once(setup, monkeypatch):
-    client, app, network, _ = setup
-    calls = []
-    async def profile(url, **kwargs):
-        calls.append(url)
-        return {"uri": f"at://{OTHER}/app.bsky.actor.profile/self", "value": {"displayName": "Soham Phadke"}}
-    monkeypatch.setattr("backend.app.get_json", profile)
+
+def test_search_author_choice_creates_profile_without_manual_save(setup, monkeypatch):
+    client, app, network, searcher = setup
+    async def results(query):
+        return [{**PAPER, "authors": ["Alex Whelan", "Soham Phadke"]}]
+    monkeypatch.setattr(searcher, "search", results)
     login(client, network, "soham.bsky.social")
-    directory = client.get("/data/site.json").json()
-    researcher = next(r for r in directory["researchers"] if r.get("did") == OTHER)
-    assert researcher["name"] == "Soham Phadke"
-    assert client.get("/researchers/" + researcher["id"] + "/").status_code == 200
+    assert client.get("/api/session").json()["researcher"] is None
+    assert all(r.get("did") != OTHER for r in client.get("/data/site.json").json()["researchers"])
+    response = client.post("/api/arxiv/search", json={"author": "Soham"}, headers=headers(client))
+    paper = response.json()["papers"][0]
+    rejected = client.post("/api/profile/author", json={"paperId": paper["id"], "name": "Invented Name"}, headers=headers(client))
+    assert rejected.status_code == 400
+    response = client.post("/api/profile/author", json={"paperId": paper["id"], "name": "Soham Phadke"}, headers=headers(client))
+    assert response.status_code == 200
+    researcher = response.json()["researcher"]
+    assert researcher["name"] == "Soham Phadke" and researcher["did"] == OTHER
+    assert "Soham Phadke" in client.get("/researchers/").text
     assert client.get("/api/session").json()["researcher"]["id"] == researcher["id"]
-    assert len(calls) == 1
-    client.put("/api/profile", json={"name": "Soham P."}, headers=headers(client))
-    assert client.get("/api/session").json()["researcher"]["name"] == "Soham P."
+    assert client.get("/researchers/" + researcher["id"] + "/").status_code == 200
 
 
-def test_existing_session_gets_missing_profile_and_uses_handle_fallback(setup, monkeypatch):
+def test_automatic_placeholder_is_hidden_until_author_selected(setup):
     client, app, network, _ = setup
     login(client, network, "soham.bsky.social")
-    with app.state.database.connect() as db:
-        db.execute("DELETE FROM directory_entries WHERE owner = ?", (OTHER,))
-    async def unavailable(*args, **kwargs):
-        raise RuntimeError("PDS unavailable")
-    monkeypatch.setattr("backend.app.get_json", unavailable)
-    researcher = client.get("/api/session").json()["researcher"]
-    assert researcher["name"] == "soham.bsky.social"
-    assert next(r for r in client.get("/data/site.json").json()["researchers"] if r.get("did") == OTHER)["id"] == researcher["id"]
+    app.state.database.save_directory_entry("researchers", "old-auto", OTHER,
+        {"id": "old-auto", "name": "soham.bsky.social", "did": OTHER, "autoCreated": True})
+    assert client.get("/api/session").json()["researcher"] is None
+    assert "soham.bsky.social" not in client.get("/researchers/").text

@@ -72,7 +72,7 @@ test("an empty search removes old papers", async () => {
 
 test("only an exact full author name is preselected", async () => {
   const ui = account();
-  ui.run('api = async () => ({papers: [{id: "exact", title: "Exact", authors: ["SOHAM  PHADKE"]}, {id: "partial", title: "Partial", authors: ["Soham"]}]});');
+  ui.run('session.researcher = {name: "Soham Phadke"}; api = async () => ({papers: [{id: "exact", title: "Exact", authors: ["SOHAM  PHADKE"]}, {id: "partial", title: "Partial", authors: ["Soham"]}]});');
   ui.get("#author").value = "Soham Phadke";
   search(ui);
   await settle();
@@ -112,4 +112,25 @@ test("search shows publication year and only labs whose professor authored the p
   assert.equal(matching.children[4].children.length, 2);
   assert.equal(matching.children[4].children[1].children[0].value, "arc");
   assert.equal(other.children.length, 3, "no lab fieldset when professor is absent");
+});
+
+
+test("partial-name search offers the full author name, saves it, selects matching papers and bolds it", async () => {
+  const ui = account();
+  ui.run('var calls = []; api = async (path, method, body) => { calls.push({path, body}); if (path === "/api/profile/author") return {researcher: {id: "soham", name: "Soham Phadke"}}; return {papers: [{id: "paper", title: "Kidney paper", authors: ["Alex Whelan", "Soham Phadke"]}]}; };');
+  ui.get("#author").value = "Soham";
+  search(ui);
+  await settle();
+  assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, false);
+  const choice = ui.get("#author-choices").children[1];
+  assert.equal(choice.textContent, "Soham Phadke");
+  choice.listeners.click();
+  await settle();
+  assert.equal(ui.get("#author").value, "Soham Phadke");
+  assert.equal(ui.run('session.researcher.name'), "Soham Phadke");
+  assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, true);
+  const authorNodes = ui.get("#suggestions").children[0].children[1].children;
+  assert.equal(authorNodes[2].textContent, "Soham Phadke");
+  assert.equal(ui.run('calls[1].path'), "/api/profile/author");
+  assert.equal(ui.run('calls[1].body.paperId'), "paper");
 });

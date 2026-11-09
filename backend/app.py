@@ -62,6 +62,11 @@ class ResearcherProfile(Input):
     labIds: list[str] = Field(default_factory=list, max_length=20)
 
 
+class AuthorChoice(Input):
+    paperId: str = Field(min_length=1, max_length=500)
+    name: str = Field(min_length=1, max_length=120)
+
+
 class LabProfile(Input):
     name: str = Field(min_length=2, max_length=200)
     institution: str = Field(min_length=2, max_length=200)
@@ -151,7 +156,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         for kind in ("researchers", "labs"):
             entries = {entry["id"]: entry for entry in result[kind]}
             entries.update({entry["id"]: entry for entry in database.directory_entries(kind)})
-            result[kind] = list(entries.values())
+            result[kind] = [entry for entry in entries.values() if not (kind == "researchers" and entry.get("autoCreated"))]
         for lab in result["labs"]:
             members = set(lab.get("members", []))
             for researcher in result["researchers"]:
@@ -164,30 +169,6 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
 
     def researcher_for(did):
         return next((r for r in public_config()["researchers"] if r.get("did") == did), None)
-
-    async def ensure_researcher(session):
-        current = researcher_for(session.did)
-        if current:
-            return current
-        name = session.handle
-        try:
-            profile = await get_json(session.pds_url.rstrip("/") + "/xrpc/com.atproto.repo.getRecord",
-                                     params={"repo": session.did, "collection": "app.bsky.actor.profile", "rkey": "self"})
-            display_name = profile.get("value", {}).get("displayName")
-            if (profile.get("uri") == f"at://{session.did}/app.bsky.actor.profile/self" and
-                    isinstance(display_name, str) and display_name.strip()):
-                name = display_name.strip()[:120]
-        except Exception:
-            pass  # A missing public profile must not prevent sign-in.
-        # Recheck after the network request; another browser may have saved a profile.
-        current = researcher_for(session.did)
-        if current:
-            return current
-        identifier = "researcher-" + hashlib.sha256(session.did.encode()).hexdigest()[:16]
-        researcher = {"id": identifier, "name": name, "did": session.did, "handle": session.handle,
-                      "institution": "", "labIds": [], "autoCreated": True}
-        database.save_directory_entry("researchers", identifier, session.did, researcher)
-        return researcher
 
     async def authenticated(request):
         key, data = browser(request)
@@ -211,7 +192,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
 
     @app.middleware("http")
     async def security(request, call_next):
-        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10, "/api/papers/search": 10, "/api/labs": 10, "/api/profile": 20}
+        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10, "/api/papers/search": 10, "/api/labs": 10, "/api/profile": 20, "/api/profile/author": 20}
         if request.url.path in limits and not rate_limit(request, limits[request.url.path]):
             return JSONResponse({"detail": "Too many requests. Try again in a minute."}, status_code=429,
                                 headers={"Retry-After": "60"})
@@ -260,10 +241,6 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             key, data = new_browser(response)
         did = data.get("did")
         researcher = researcher_for(did) if did else None
-        if did and not researcher:
-            session = await OAuthStore(database, key).get_session(did)
-            if session:
-                researcher = await ensure_researcher(session)
         claim = next((c for c in database.claims() if c["did"] == did), None)
         response.body = json.dumps({"csrf": data["csrf"], "user": {"did": did, "handle": data.get("handle")} if did else None,
                                     "researcher": researcher, "claim": claim,
@@ -309,7 +286,6 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             response = RedirectResponse("/account/", status_code=303)
             new_key, _ = new_browser(response, {"did": session.did, "handle": session.handle})
             await OAuthStore(database, new_key).save_session(session)
-            await ensure_researcher(session)
             await client.session_store.delete_session(session.did)
             database.delete("browser:" + key)
             return response
@@ -332,6 +308,30 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         response = JSONResponse({"ok": True})
         response.delete_cookie(cookie_name, path="/", secure=secure, httponly=True, samesite="lax")
         return response
+
+    @app.post("/api/profile/author")
+    async def choose_author(payload: AuthorChoice, request: Request):
+        key, _, _, session = await authenticated(request)
+        paper = (database.get("suggestions:" + key) or {}).get(payload.paperId)
+        if not paper:
+            raise HTTPException(400, "Search again to choose your author name.")
+        name = next((name for name in paper.get("authors", []) if normalized_name(name) == normalized_name(payload.name)), None)
+        if not name:
+            raise HTTPException(400, "Choose an author from the search results.")
+        current = researcher_for(session.did)
+        if not current:
+            matches = [r for r in public_config()["researchers"] if normalized_name(r["name"]) == normalized_name(name)]
+            if len(matches) == 1 and not matches[0].get("did"):
+                try:
+                    database.claim_by_name(session.did, session.handle, matches[0]["id"])
+                except ValueError as error:
+                    raise HTTPException(409, str(error)) from None
+                current = researcher_for(session.did)
+        identifier = current["id"] if current else "researcher-" + hashlib.sha256(session.did.encode()).hexdigest()[:16]
+        profile = {"institution": "", "labIds": [], **(current or {}), "id": identifier,
+                   "name": name.strip(), "did": session.did, "handle": session.handle, "autoCreated": False}
+        database.save_directory_entry("researchers", identifier, session.did, profile)
+        return {"researcher": profile}
 
     @app.put("/api/profile")
     async def save_profile(payload: ResearcherProfile, request: Request):
@@ -432,10 +432,15 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
                     if isinstance(result, Exception)]
         if len(failures) == len(results):
             raise HTTPException(502, "Paper search is unavailable. Try again later.")
-        papers = rank_papers(query, [paper for result in results if not isinstance(result, Exception) for paper in result])
+        papers = rank_papers(query, [paper for result in results if not isinstance(result, Exception) for paper in result], limit=200)
         remember_suggestions(key, papers)
         warning = "Some results are missing because " + " and ".join(dict.fromkeys(failures)) + " could not be reached. Try again." if failures else ""
-        return {"papers": [{**p, "id": paper_key(p)} for p in papers], "kind": "text", "warning": warning}
+        authors = {}
+        for paper in papers:
+            for name in paper.get("authors", []):
+                if isinstance(name, str) and 0 < len(name) <= 120:
+                    authors.setdefault(normalized_name(name), {"name": name, "paperId": paper_key(paper)})
+        return {"papers": [{**p, "id": paper_key(p)} for p in papers[:20]], "authors": list(authors.values()), "kind": "text", "warning": warning}
 
     @app.post("/api/doi/lookup")
     async def doi_lookup(payload: DoiLookup, request: Request):
@@ -469,6 +474,8 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     @app.post("/api/publications")
     async def publish(payload: Import, request: Request):
         key, _, client, session = await authenticated(request)
+        if not researcher_for(session.did):
+            raise HTTPException(400, "Choose your author name from the search results first.")
         saved = database.get("suggestions:" + key) or {}
         labs = public_config()["labs"]
         known_labs = {lab["id"] for lab in labs}

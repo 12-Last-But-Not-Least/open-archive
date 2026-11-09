@@ -37,6 +37,73 @@ async function api(path, method = "GET", body) {
   return data;
 }
 
+let choosingAuthor = false, authorChoices = [];
+function renderAuthorChoices(query) {
+  const target = $("#author-choices");
+  target.replaceChildren();
+  const names = new Map();
+  for (const choice of authorChoices) names.set(normalizeName(choice.name), choice);
+  for (const paper of suggestions) {
+    for (const name of paper.authors || []) {
+      if (!names.has(normalizeName(name))) names.set(normalizeName(name), {name, paperId: paper.id});
+    }
+  }
+  if (!names.size) return;
+  target.append(node("p", "Choose your name"));
+  const tokens = normalizeName(query).match(/[\p{L}\p{N}]+/gu) || [];
+  const matches = choice => tokens.length && tokens.every(token => normalizeName(choice.name).includes(token));
+  const choices = [...names.values()].sort((a, b) => Number(matches(b)) - Number(matches(a)));
+  const hasMatches = choices.some(matches);
+  const others = node("details");
+  others.append(node("summary", "Other authors"));
+  for (const choice of choices) {
+    const button = node("button", choice.name);
+    button.type = "button";
+    button.disabled = choosingAuthor;
+    button.addEventListener("click", () => {
+      if (choosingAuthor) return;
+      choosingAuthor = true;
+      $("#author").disabled = true;
+      $("#find-papers").disabled = true;
+      renderAuthorChoices(query);
+      run(button, async () => {
+        try {
+          const data = await api("/api/profile/author", "POST", choice);
+          session.researcher = data.researcher;
+          selectionName = data.researcher.name;
+          $("#author").value = selectionName;
+          const link = node("a", selectionName);
+          link.href = "/researchers/" + encodeURIComponent(data.researcher.id) + "/";
+          $("#profile").replaceChildren(link);
+          status("Searching…");
+          const version = ++searchVersion;
+          try {
+            const results = await api("/api/papers/search", "POST", {query: selectionName});
+            if (version !== searchVersion) return;
+            suggestions = results.papers;
+            authorChoices = results.authors || [];
+            renderSuggestions();
+            status(results.warning || "");
+          } catch (error) {
+            if (version === searchVersion) {
+              renderSuggestions();
+              status(error.message);
+            }
+          }
+        } finally {
+          choosingAuthor = false;
+          $("#author").disabled = false;
+          $("#find-papers").disabled = false;
+          renderAuthorChoices($("#author").value);
+        }
+      });
+    });
+    if (!hasMatches || matches(choice)) target.append(button);
+    else others.append(button);
+  }
+  if (hasMatches && choices.some(choice => !matches(choice))) target.append(others);
+}
+
 function renderSuggestions() {
   const target = $("#suggestions");
   target.replaceChildren();
@@ -55,7 +122,12 @@ function renderSuggestions() {
     checkbox.checked = !checkbox.disabled && Boolean(normalizeName(selectionName)) &&
       (paper.authors || []).some(author => normalizeName(author) === normalizeName(selectionName));
     label.append(checkbox, document.createTextNode(" " + paper.title));
-    row.append(label, node("p", (paper.authors || []).join(", ")));
+    const authors = node("p");
+    (paper.authors || []).forEach((author, index) => {
+      if (index) authors.append(document.createTextNode(", "));
+      authors.append(normalizeName(author) === normalizeName(selectionName) ? node("strong", author) : document.createTextNode(author));
+    });
+    row.append(label, authors);
     const year = new Date(paper.publishedAt).getUTCFullYear();
     if (Number.isFinite(year)) row.append(node("p", "Published " + year));
     row.append(paperLink({...paper, title: "View paper"}));
@@ -83,13 +155,15 @@ function renderSuggestions() {
 }
 
 function updateAddButton() {
-  $("#add").disabled = !pdsLoaded || !document.querySelector('input[name="paper"]:checked:not(:disabled)');
+  $("#add").disabled = !session?.researcher || !pdsLoaded || !document.querySelector('input[name="paper"]:checked:not(:disabled)');
 }
 
 $("#suggestions").addEventListener("change", updateAddButton);
 $("#author").addEventListener("input", () => {
   searchVersion++;
   suggestions = [];
+  authorChoices = [];
+  $("#author-choices").replaceChildren();
   $("#suggestions").replaceChildren();
   updateAddButton();
   status("");
@@ -156,27 +230,6 @@ async function load() {
     $("#profile").append(link);
     $("#author").value = session.researcher.name;
   }
-  $("#profile-name").value = session.researcher?.name || "";
-  $("#profile-institution").value = session.researcher?.institution || "";
-  $("#profile-labs").replaceChildren();
-  for (const lab of session.labs) {
-    const label = node("label");
-    const input = node("input");
-    input.type = "checkbox";
-    input.name = "profile-lab";
-    input.value = lab.id;
-    input.checked = (lab.members || []).includes(session.researcher?.id);
-    label.append(input, document.createTextNode(" " + lab.name));
-    $("#profile-labs").append(label);
-  }
-  $("#claim-section").hidden = Boolean(session.researcher && !session.researcher.autoCreated) || (!session.researchers.length && !session.claim);
-  $("#researcher").replaceChildren();
-  for (const researcher of session.researchers) {
-    const option = node("option", researcher.name);
-    option.value = researcher.id;
-    $("#researcher").append(option);
-  }
-  $("#claim-status").textContent = session.claim?.status === "pending" ? "You have an earlier claim request. Match your Bluesky display name and claim again to link immediately." : "";
   ({papers: suggestions} = await api("/api/suggestions"));
   selectionName = session.researcher?.name || "";
   await refreshPublications();
@@ -195,20 +248,14 @@ $("#logout").addEventListener("click", event => run(event.target, async () => {
   location.reload();
 }));
 $("#refresh").addEventListener("click", event => run(event.target, refreshPublications));
-$("#claim").addEventListener("submit", event => {
-  event.preventDefault();
-  run(event.submitter, async () => {
-    await api("/api/claims", "POST", {researcherId: $("#researcher").value});
-    await load();
-    status("Profile claimed. You can now manage your publications.");
-  });
-});
 $("#search").addEventListener("submit", event => {
   event.preventDefault();
   const version = ++searchVersion;
   const author = $("#author").value.trim();
-  selectionName = author;
+  selectionName = session.researcher?.name || "";
   suggestions = [];
+  authorChoices = [];
+  $("#author-choices").replaceChildren();
   $("#suggestions").replaceChildren();
   updateAddButton();
   run(event.submitter, async () => {
@@ -221,22 +268,13 @@ $("#search").addEventListener("submit", event => {
       return;
     }
     if (version !== searchVersion) return;
-    selectionName = data.kind === "doi" ? session.researcher?.name || "" : author;
+    selectionName = session.researcher?.name || "";
     suggestions = data.papers;
+    authorChoices = data.authors || [];
+    renderAuthorChoices(author);
     renderSuggestions();
     if (!suggestions.length) $("#suggestions").replaceChildren(node("p", "No papers found."));
     status(data.warning || "");
-  });
-});
-$("#profile-edit").addEventListener("submit", event => {
-  event.preventDefault();
-  run(event.submitter, async () => {
-    await api("/api/profile", "PUT", {
-      name: $("#profile-name").value.trim(), institution: $("#profile-institution").value.trim(),
-      labIds: [...document.querySelectorAll('input[name="profile-lab"]:checked')].map(input => input.value),
-    });
-    await load();
-    status("Profile saved.");
   });
 });
 $("#lab-create").addEventListener("submit", event => {

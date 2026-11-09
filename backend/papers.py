@@ -175,7 +175,7 @@ async def search_datacite(query):
         return papers
 
 
-def rank_papers(query, papers):
+def rank_papers(query, papers, limit=20):
     tokens = set(re.findall(r"\w+", query.casefold()))
     def fields(paper):
         return [paper["title"], *paper.get("authors", [])]
@@ -190,7 +190,7 @@ def rank_papers(query, papers):
             continue
         seen.update(identifiers)
         ranked.append(paper)
-    return ranked[:20]
+    return ranked[:limit]
 
 
 def paper_key(paper):

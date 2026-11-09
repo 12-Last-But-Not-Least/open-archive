@@ -22,15 +22,6 @@
       <p id="profile"></p>
       <button id="logout" type="button">Sign out</button>
       <details>
-        <summary>Your researcher profile</summary>
-        <form id="profile-edit">
-          <p><label for="profile-name">Full name</label> <input id="profile-name" required maxlength="120"></p>
-          <p><label for="profile-institution">Institution</label> <input id="profile-institution" maxlength="200"></p>
-          <fieldset><legend>Your labs</legend><div id="profile-labs"></div></fieldset>
-          <button type="submit">Save profile</button>
-        </form>
-      </details>
-      <details>
         <summary>Add a lab</summary>
         <form id="lab-create">
           <p><label for="lab-name">Lab name</label> <input id="lab-name" required maxlength="200"></p>
@@ -39,16 +30,6 @@
           <button type="submit">Add lab</button>
         </form>
       </details>
-      <section id="claim-section" hidden>
-        <h2>Claim a researcher profile</h2>
-        <p>Use the same full name on your Bluesky profile, then claim your profile here. Name matching links your account immediately; it does not verify your identity.</p>
-        <p id="claim-status"></p>
-        <form id="claim">
-          <label for="researcher">Your profile</label>
-          <select id="researcher" required></select>
-          <button type="submit">Claim profile</button>
-        </form>
-      </section>
       <section>
         <div class="section-heading"><h2>Your publications</h2> <button id="refresh" type="button">Refresh</button></div>
         <p id="publications-status" role="status"></p>
@@ -61,6 +42,7 @@
           <input id="author" name="query" placeholder="Name, title, or DOI" required maxlength="1000">
           <button id="find-papers" type="submit" disabled>Find papers</button>
         </form>
+        <div id="author-choices"></div>
         <form id="import">
           <div id="suggestions"></div>
           <p>Selected papers will be added publicly to your ATProto account.</p>
