@@ -44,16 +44,14 @@ jobs:
           python-version: '3.12'
       - name: Install Railway CLI
         run: |
-          for attempt in 1 2 3; do
-            if npm install --global @railway/cli@5.71.0; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "Railway CLI download failed; retrying in 5 seconds."
-              sleep 5
-            fi
-          done
-          exit 1
+          curl --fail --location --retry 3 --max-time 60 \
+            'https://github.com/railwayapp/cli/releases/download/v5.71.0/railway-v5.71.0-x86_64-unknown-linux-musl.tar.gz?download=1' \
+            --output "$RUNNER_TEMP/railway.tar.gz"
+          echo "2e682fd2ddf8d6fdf9e46d9d99d99646ff0022a6abb0c2bca93011348a269fb9  $RUNNER_TEMP/railway.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/railway-bin"
+          tar -xzf "$RUNNER_TEMP/railway.tar.gz" -C "$RUNNER_TEMP/railway-bin" railway
+          chmod +x "$RUNNER_TEMP/railway-bin/railway"
+          echo "$RUNNER_TEMP/railway-bin" >> "$GITHUB_PATH"
       - name: Deploy and verify the new revision
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
