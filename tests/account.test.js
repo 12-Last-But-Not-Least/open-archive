@@ -147,3 +147,18 @@ test("remove profile clears the chosen name without deleting publication records
   assert.equal(ui.run('selectionName'), "");
   assert.equal(ui.get("#remove-profile").hidden, true);
 });
+
+
+test("remove all requires confirmation and keeps profile while clearing papers", async () => {
+  const ui = account();
+  ui.run('session.user = {handle: "alt.bsky.social"}; session.researcher = {name: "Soham"}; publications = [{title: "One"}, {title: "Two"}]; var calls = []; confirm = () => false; api = async (path, method) => { calls.push({path, method}); return {removed: 2, failed: 0}; }; refreshPublications = async () => { publications = []; };');
+  await ui.get("#remove-all").listeners.click();
+  assert.equal(ui.run('calls.length'), 0);
+  ui.run('confirm = () => true;');
+  await ui.get("#remove-all").listeners.click();
+  assert.equal(ui.run('calls[0].path'), "/api/publications");
+  assert.equal(ui.run('calls[0].method'), "DELETE");
+  assert.equal(ui.run('session.researcher.name'), "Soham");
+  assert.equal(ui.get("#remove-all").disabled, true);
+  assert.equal(ui.get("#status").textContent, "All papers removed.");
+});

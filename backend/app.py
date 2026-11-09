@@ -523,6 +523,30 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
                     results.append({"id": selected.id, "status": "failed"})
         return {"results": results}
 
+    @app.delete("/api/publications")
+    async def remove_all_publications(request: Request):
+        key, _, client, session = await authenticated(request)
+        removed, failed = 0, 0
+        async with lock_for(key):
+            session = await client.session_store.get_session(session.did)
+            try:
+                papers = await list_papers(client, session)
+            except Exception:
+                raise HTTPException(502, "Could not load your papers. Nothing was removed.") from None
+            for paper in papers:
+                rkey = paper["rkey"]
+                if not re.fullmatch(r"[a-zA-Z0-9._~:-]{1,512}", rkey) or rkey in {".", ".."}:
+                    failed += 1
+                    continue
+                try:
+                    await xrpc(client, session, "POST", "deleteRecord", json={
+                        "repo": session.did, "collection": COLLECTION, "rkey": rkey,
+                    })
+                    removed += 1
+                except Exception:
+                    failed += 1
+        return {"removed": removed, "failed": failed}
+
     @app.delete("/api/publications/{rkey}")
     async def remove(rkey: str, request: Request):
         if not re.fullmatch(r"[a-zA-Z0-9._~:-]{1,512}", rkey) or rkey in {".", ".."}:

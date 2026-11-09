@@ -1,5 +1,6 @@
 let session, suggestions = [], publications = [], pdsLoaded = false;
 let searchVersion = 0;
+let removingAll = false;
 let selectionName = "";
 const normalizeName = name => String(name || "").normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 const $ = selector => document.querySelector(selector);
@@ -158,7 +159,7 @@ function renderSuggestions() {
 }
 
 function updateAddButton() {
-  $("#add").disabled = !session?.researcher || !pdsLoaded || !document.querySelector('input[name="paper"]:checked:not(:disabled)');
+  $("#add").disabled = removingAll || !session?.researcher || !pdsLoaded || !document.querySelector('input[name="paper"]:checked:not(:disabled)');
 }
 
 $("#suggestions").addEventListener("change", updateAddButton);
@@ -172,6 +173,7 @@ $("#author").addEventListener("input", () => {
   status("");
 });
 async function refreshPublications() {
+  $("#remove-all").disabled = true;
   pdsLoaded = false;
   $("#add").disabled = true;
   $("#publications-status").textContent = "Loading…";
@@ -189,6 +191,7 @@ async function refreshPublications() {
       const remove = node("button", "Remove");
       remove.type = "button";
       remove.addEventListener("click", () => run(remove, async () => {
+        if (removingAll) return;
         if (!confirm(`Remove “${paper.title}” from your ATProto publication list?`)) return;
         await api("/api/publications/" + encodeURIComponent(paper.rkey), "DELETE");
         await refreshPublications();
@@ -202,6 +205,7 @@ async function refreshPublications() {
     $("#own-papers").replaceChildren();
     $("#publications-status").textContent = error.message;
   }
+  $("#remove-all").disabled = removingAll || !pdsLoaded || !publications.length;
   renderSuggestions();
 }
 
@@ -247,6 +251,28 @@ $("#login").addEventListener("submit", event => {
     const data = await api("/auth/login", "POST", {handle: $("#handle").value.trim()});
     location.assign(data.url);
   });
+});
+$("#remove-all").addEventListener("click", async () => {
+  if (removingAll || !pdsLoaded || !publications.length) return;
+  if (!confirm(`Remove all ${publications.length} papers from @${session.user.handle}? This deletes their publication records from your ATProto account. Your researcher profile stays.`)) return;
+  removingAll = true;
+  $("#remove-all").disabled = true;
+  $("#refresh").disabled = true;
+  updateAddButton();
+  status("Removing papers…");
+  try {
+    const result = await api("/api/publications", "DELETE");
+    await refreshPublications();
+    status(result.failed ? `${result.removed} removed. ${result.failed} could not be removed; you can retry.` : "All papers removed.");
+  } catch (error) {
+    await refreshPublications();
+    status(error.message);
+  } finally {
+    removingAll = false;
+    $("#refresh").disabled = false;
+    $("#remove-all").disabled = !pdsLoaded || !publications.length;
+    updateAddButton();
+  }
 });
 $("#remove-profile").addEventListener("click", event => {
   if (!session.researcher || choosingAuthor) return;
@@ -310,6 +336,7 @@ $("#lab-create").addEventListener("submit", event => {
 });
 $("#import").addEventListener("submit", event => {
   event.preventDefault();
+  if (removingAll) return;
   run(event.submitter, async () => {
     const papers = [...document.querySelectorAll('input[name="paper"]:checked:not(:disabled)')].map(input => ({
       id: input.value,

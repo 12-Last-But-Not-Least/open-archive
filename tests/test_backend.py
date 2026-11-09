@@ -655,3 +655,38 @@ def test_remove_profile_releases_legacy_claim(setup):
     assert client.delete("/api/profile", headers=headers(client)).status_code == 200
     assert app.state.database.claims() == []
     assert client.get("/api/session").json()["researcher"] is None
+
+
+def test_remove_all_is_scoped_to_signed_in_account_and_retries_failures(setup, monkeypatch):
+    client, _, network, _ = setup
+    assert client.delete("/api/publications", headers=headers(client)).status_code == 401
+    login(client, network)
+    def record(did, key):
+        return {"uri": f"at://{did}/{COLLECTION}/{key}", "value": {**PAPER, "$type": COLLECTION}}
+    network["records"] = {DID: [record(DID, "one"), record(DID, "two")], OTHER: [record(OTHER, "other")]}
+    original = FakeOAuth.make_authenticated_request
+    fail = True
+    async def request(self, session, method, url, **kwargs):
+        if fail and url.endswith("deleteRecord") and kwargs["json"]["rkey"] == "two":
+            return httpx.Response(503, request=httpx.Request(method, url))
+        return await original(self, session, method, url, **kwargs)
+    monkeypatch.setattr(FakeOAuth, "make_authenticated_request", request)
+    assert client.delete("/api/publications", headers={"Origin": ORIGIN}).status_code == 403
+    response = client.delete("/api/publications", headers=headers(client))
+    assert response.json() == {"removed": 1, "failed": 1}
+    assert len(network["records"][DID]) == 1 and len(network["records"][OTHER]) == 1
+    assert client.get("/api/session").json()["researcher"]["id"] == "bryce-hackel"
+    fail = False
+    assert client.delete("/api/publications", headers=headers(client)).json() == {"removed": 1, "failed": 0}
+    assert network["records"][DID] == [] and len(network["records"][OTHER]) == 1
+    assert client.delete("/api/publications", headers=headers(client)).json() == {"removed": 0, "failed": 0}
+
+
+def test_remove_all_does_not_delete_when_listing_fails(setup, monkeypatch):
+    client, _, network, _ = setup
+    login(client, network)
+    async def unavailable(*args):
+        raise RuntimeError("offline")
+    monkeypatch.setattr("backend.app.list_papers", unavailable)
+    assert client.delete("/api/publications", headers=headers(client)).status_code == 502
+    assert not network["requests"]
