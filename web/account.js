@@ -63,6 +63,7 @@ function renderAuthorChoices(query) {
     button.addEventListener("click", () => {
       if (choosingAuthor) return;
       choosingAuthor = true;
+      $("#remove-profile").disabled = true;
       $("#author").disabled = true;
       $("#find-papers").disabled = true;
       renderAuthorChoices(query);
@@ -75,6 +76,7 @@ function renderAuthorChoices(query) {
           const link = node("a", selectionName);
           link.href = "/researchers/" + encodeURIComponent(data.researcher.id) + "/";
           $("#profile").replaceChildren(link);
+          $("#remove-profile").hidden = false;
           status("Searching…");
           const version = ++searchVersion;
           try {
@@ -92,6 +94,7 @@ function renderAuthorChoices(query) {
           }
         } finally {
           choosingAuthor = false;
+          $("#remove-profile").disabled = false;
           $("#author").disabled = false;
           $("#find-papers").disabled = false;
           renderAuthorChoices($("#author").value);
@@ -224,6 +227,8 @@ async function load() {
   if (!session.user) return;
   $("#identity").textContent = "@" + session.user.handle;
   $("#profile").replaceChildren();
+  $("#remove-profile").hidden = !session.researcher;
+  $("#author").value = session.researcher?.name || "";
   if (session.researcher) {
     const link = node("a", session.researcher.name);
     link.href = "/researchers/" + encodeURIComponent(session.researcher.id) + "/";
@@ -241,6 +246,20 @@ $("#login").addEventListener("submit", event => {
     status("Opening sign-in…");
     const data = await api("/auth/login", "POST", {handle: $("#handle").value.trim()});
     location.assign(data.url);
+  });
+});
+$("#remove-profile").addEventListener("click", event => {
+  if (!session.researcher || choosingAuthor) return;
+  if (!confirm(`Remove “${session.researcher.name}” from this account and the researcher directory? Papers already added to Bluesky will remain.`)) return;
+  run(event.target, async () => {
+    await api("/api/profile", "DELETE");
+    searchVersion++;
+    selectionName = "";
+    authorChoices = [];
+    suggestions = [];
+    $("#author-choices").replaceChildren();
+    await load();
+    status("Profile removed. Search to choose a different author name.");
   });
 });
 $("#logout").addEventListener("click", event => run(event.target, async () => {

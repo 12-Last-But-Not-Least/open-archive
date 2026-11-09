@@ -148,6 +148,8 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
 
     def public_config():
         result = json.loads(json.dumps(config))
+        removed = database.removed_researchers()
+        result["researchers"] = [r for r in result["researchers"] if r["id"] not in removed]
         links = {claim["researcher_id"]: claim for claim in database.claims() if claim["status"] == "approved"}
         for researcher in result["researchers"]:
             if researcher["id"] in links:
@@ -164,7 +166,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
                     members.discard(researcher["id"])
                     if lab["id"] in researcher["labIds"]:
                         members.add(researcher["id"])
-            lab["members"] = sorted(members)
+            lab["members"] = sorted(members & {r["id"] for r in result["researchers"]})
         return result
 
     def researcher_for(did):
@@ -332,6 +334,15 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
                    "name": name.strip(), "did": session.did, "handle": session.handle, "autoCreated": False}
         database.save_directory_entry("researchers", identifier, session.did, profile)
         return {"researcher": profile}
+
+    @app.delete("/api/profile")
+    async def remove_profile(request: Request):
+        key, _, _, session = await authenticated(request)
+        current = researcher_for(session.did)
+        seeded_id = current["id"] if current and any(r["id"] == current["id"] for r in config["researchers"]) else None
+        database.remove_researcher(session.did, seeded_id)
+        database.delete("suggestions:" + key)
+        return {"ok": True}
 
     @app.put("/api/profile")
     async def save_profile(payload: ResearcherProfile, request: Request):

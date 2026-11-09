@@ -610,3 +610,48 @@ def test_automatic_placeholder_is_hidden_until_author_selected(setup):
         {"id": "old-auto", "name": "soham.bsky.social", "did": OTHER, "autoCreated": True})
     assert client.get("/api/session").json()["researcher"] is None
     assert "soham.bsky.social" not in client.get("/researchers/").text
+
+
+def test_remove_own_profile_preserves_other_accounts_and_pds_records(setup):
+    client, app, network, _ = setup
+    assert client.delete("/api/profile", headers=headers(client)).status_code == 401
+    login(client, network, "alt.bsky.social")
+    profile = client.put("/api/profile", json={"name": "Soham Phadke"}, headers=headers(client)).json()["researcher"]
+    network["records"][OTHER] = [{"uri": f"at://{OTHER}/{COLLECTION}/existing", "value": {**PAPER, "$type": COLLECTION}}]
+    before = copy.deepcopy(network["records"])
+    assert client.delete("/api/profile", headers={"Origin": ORIGIN}).status_code == 403
+    assert client.delete("/api/profile", headers=headers(client)).status_code == 200
+    assert client.get("/api/session").json()["researcher"] is None
+    directory = client.get("/data/site.json").json()
+    assert any(r.get("did") == DID for r in directory["researchers"])
+    assert all(r.get("did") != OTHER for r in directory["researchers"])
+    assert client.get("/researchers/" + profile["id"] + "/").status_code == 404
+    assert network["records"] == before
+    assert not any(request[2].endswith("deleteRecord") for request in network["requests"])
+    assert client.get("/api/publications").status_code == 200
+    paper = client.post("/api/arxiv/search", json={"author": "Bryce"}, headers=headers(client)).json()["papers"][0]
+    chosen = client.post("/api/profile/author", json={"name": "Bryce Hackel", "paperId": paper["id"]}, headers=headers(client))
+    assert chosen.status_code == 200
+    assert chosen.json()["researcher"]["did"] == OTHER
+
+
+def test_removed_seeded_profile_stays_removed_after_restart(setup):
+    client, app, network, _ = setup
+    login(client, network)
+    assert client.delete("/api/profile", headers=headers(client)).status_code == 200
+    assert client.get("/api/session").json()["researcher"] is None
+    restarted = create_app(directory=app.state.database.path.parent, config=copy.deepcopy(CONFIG), catalog=[])
+    with TestClient(restarted, base_url=ORIGIN) as fresh:
+        directory = fresh.get("/data/site.json").json()
+        assert all(r["id"] != "bryce-hackel" for r in directory["researchers"])
+        assert directory["labs"][0]["members"] == []
+        assert fresh.get("/researchers/bryce-hackel/").status_code == 404
+
+
+def test_remove_profile_releases_legacy_claim(setup):
+    client, app, network, _ = setup
+    login(client, network, "jay.bsky.social")
+    app.state.database.claim_by_name(OTHER, "jay.bsky.social", "jay")
+    assert client.delete("/api/profile", headers=headers(client)).status_code == 200
+    assert app.state.database.claims() == []
+    assert client.get("/api/session").json()["researcher"] is None

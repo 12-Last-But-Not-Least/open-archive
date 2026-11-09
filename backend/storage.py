@@ -38,6 +38,9 @@ class Database:
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS researcher_owner
                     ON directory_entries(owner) WHERE kind = 'researchers';
+                CREATE TABLE IF NOT EXISTS removed_researchers (
+                    id TEXT PRIMARY KEY, owner TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS claims (
                     did TEXT PRIMARY KEY, handle TEXT NOT NULL, researcher_id TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL
@@ -86,6 +89,18 @@ class Database:
                 raise ValueError("This entry already belongs to another account.")
             db.execute("INSERT INTO directory_entries VALUES (?, ?, ?, ?) ON CONFLICT(kind, id) DO UPDATE SET value=excluded.value",
                        (kind, identifier, owner, json.dumps(value)))
+
+    def removed_researchers(self):
+        with self.connect() as db:
+            return {row["id"] for row in db.execute("SELECT id FROM removed_researchers")}
+
+    def remove_researcher(self, did, seeded_id=None):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("DELETE FROM directory_entries WHERE kind = 'researchers' AND owner = ?", (did,))
+            db.execute("DELETE FROM claims WHERE did = ?", (did,))
+            if seeded_id:
+                db.execute("INSERT OR IGNORE INTO removed_researchers VALUES (?, ?)", (seeded_id, did))
 
     def claims(self):
         with self.connect() as db:

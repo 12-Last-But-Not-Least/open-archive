@@ -134,3 +134,16 @@ test("partial-name search offers the full author name, saves it, selects matchin
   assert.equal(ui.run('calls[1].path'), "/api/profile/author");
   assert.equal(ui.run('calls[1].body.paperId'), "paper");
 });
+
+
+test("remove profile clears the chosen name without deleting publication records", async () => {
+  const ui = account();
+  ui.run('var requests = []; confirm = () => true; session.researcher = {name: "Soham Phadke"}; selectionName = "Soham Phadke"; api = async (path, method) => { requests.push({path, method}); return {ok: true}; }; load = async () => { session.researcher = null; document.querySelector("#remove-profile").hidden = true; document.querySelector("#author").value = ""; };');
+  ui.get("#remove-profile").listeners.click({target: ui.get("#remove-profile")});
+  await settle();
+  assert.equal(ui.run('requests.length'), 1);
+  assert.equal(ui.run('requests[0].path'), "/api/profile");
+  assert.equal(ui.run('requests[0].method'), "DELETE");
+  assert.equal(ui.run('selectionName'), "");
+  assert.equal(ui.get("#remove-profile").hidden, true);
+});
