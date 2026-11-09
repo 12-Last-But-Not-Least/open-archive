@@ -169,7 +169,7 @@ async function load() {
     label.append(input, document.createTextNode(" " + lab.name));
     $("#profile-labs").append(label);
   }
-  $("#claim-section").hidden = Boolean(session.researcher) || (!session.researchers.length && !session.claim);
+  $("#claim-section").hidden = Boolean(session.researcher && !session.researcher.autoCreated) || (!session.researchers.length && !session.claim);
   $("#researcher").replaceChildren();
   for (const researcher of session.researchers) {
     const option = node("option", researcher.name);

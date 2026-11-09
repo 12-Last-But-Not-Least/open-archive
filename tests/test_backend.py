@@ -87,6 +87,10 @@ class FakeSearch:
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
+    async def public_profile(url, **kwargs):
+        did = kwargs["params"]["repo"]
+        return {"uri": f"at://{did}/app.bsky.actor.profile/self", "value": {}}
+    monkeypatch.setattr("backend.app.get_json", public_profile)
     async def empty_openalex(query, field):
         return []
     async def empty_datacite(query):
@@ -575,3 +579,34 @@ def test_doi_falls_back_to_datacite(monkeypatch):
     monkeypatch.setattr(papers.httpx, "AsyncClient", lambda **kwargs: client_class(transport=httpx.MockTransport(handle), **kwargs))
     result = asyncio.run(papers.lookup_doi("10.1234/poster"))
     assert result["source"] == "datacite" and calls == ["api.crossref.org", "api.datacite.org"]
+
+
+def test_login_creates_profile_from_bluesky_once(setup, monkeypatch):
+    client, app, network, _ = setup
+    calls = []
+    async def profile(url, **kwargs):
+        calls.append(url)
+        return {"uri": f"at://{OTHER}/app.bsky.actor.profile/self", "value": {"displayName": "Soham Phadke"}}
+    monkeypatch.setattr("backend.app.get_json", profile)
+    login(client, network, "soham.bsky.social")
+    directory = client.get("/data/site.json").json()
+    researcher = next(r for r in directory["researchers"] if r.get("did") == OTHER)
+    assert researcher["name"] == "Soham Phadke"
+    assert client.get("/researchers/" + researcher["id"] + "/").status_code == 200
+    assert client.get("/api/session").json()["researcher"]["id"] == researcher["id"]
+    assert len(calls) == 1
+    client.put("/api/profile", json={"name": "Soham P."}, headers=headers(client))
+    assert client.get("/api/session").json()["researcher"]["name"] == "Soham P."
+
+
+def test_existing_session_gets_missing_profile_and_uses_handle_fallback(setup, monkeypatch):
+    client, app, network, _ = setup
+    login(client, network, "soham.bsky.social")
+    with app.state.database.connect() as db:
+        db.execute("DELETE FROM directory_entries WHERE owner = ?", (OTHER,))
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("PDS unavailable")
+    monkeypatch.setattr("backend.app.get_json", unavailable)
+    researcher = client.get("/api/session").json()["researcher"]
+    assert researcher["name"] == "soham.bsky.social"
+    assert next(r for r in client.get("/data/site.json").json()["researchers"] if r.get("did") == OTHER)["id"] == researcher["id"]

@@ -105,6 +105,11 @@ class Database:
             if db.execute("SELECT 1 FROM claims WHERE status = 'approved' AND (did = ? OR researcher_id = ?)",
                           (did, researcher_id)).fetchone():
                 raise ValueError("This account or profile has already been linked.")
+            profile = db.execute("SELECT value FROM directory_entries WHERE kind = 'researchers' AND owner = ?", (did,)).fetchone()
+            if profile:
+                if not json.loads(profile["value"]).get("autoCreated"):
+                    raise ValueError("This account already has a researcher profile.")
+                db.execute("DELETE FROM directory_entries WHERE kind = 'researchers' AND owner = ?", (did,))
             db.execute("INSERT OR REPLACE INTO claims VALUES (?, ?, ?, 'approved', ?)",
                        (did, handle, researcher_id, time.time()))
 

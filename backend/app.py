@@ -165,6 +165,30 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     def researcher_for(did):
         return next((r for r in public_config()["researchers"] if r.get("did") == did), None)
 
+    async def ensure_researcher(session):
+        current = researcher_for(session.did)
+        if current:
+            return current
+        name = session.handle
+        try:
+            profile = await get_json(session.pds_url.rstrip("/") + "/xrpc/com.atproto.repo.getRecord",
+                                     params={"repo": session.did, "collection": "app.bsky.actor.profile", "rkey": "self"})
+            display_name = profile.get("value", {}).get("displayName")
+            if (profile.get("uri") == f"at://{session.did}/app.bsky.actor.profile/self" and
+                    isinstance(display_name, str) and display_name.strip()):
+                name = display_name.strip()[:120]
+        except Exception:
+            pass  # A missing public profile must not prevent sign-in.
+        # Recheck after the network request; another browser may have saved a profile.
+        current = researcher_for(session.did)
+        if current:
+            return current
+        identifier = "researcher-" + hashlib.sha256(session.did.encode()).hexdigest()[:16]
+        researcher = {"id": identifier, "name": name, "did": session.did, "handle": session.handle,
+                      "institution": "", "labIds": [], "autoCreated": True}
+        database.save_directory_entry("researchers", identifier, session.did, researcher)
+        return researcher
+
     async def authenticated(request):
         key, data = browser(request)
         if not data.get("did"):
@@ -231,11 +255,15 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     async def session_info(request: Request):
         response = JSONResponse({})
         try:
-            _, data = browser(request)
+            key, data = browser(request)
         except HTTPException:
-            _, data = new_browser(response)
+            key, data = new_browser(response)
         did = data.get("did")
         researcher = researcher_for(did) if did else None
+        if did and not researcher:
+            session = await OAuthStore(database, key).get_session(did)
+            if session:
+                researcher = await ensure_researcher(session)
         claim = next((c for c in database.claims() if c["did"] == did), None)
         response.body = json.dumps({"csrf": data["csrf"], "user": {"did": did, "handle": data.get("handle")} if did else None,
                                     "researcher": researcher, "claim": claim,
@@ -281,6 +309,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             response = RedirectResponse("/account/", status_code=303)
             new_key, _ = new_browser(response, {"did": session.did, "handle": session.handle})
             await OAuthStore(database, new_key).save_session(session)
+            await ensure_researcher(session)
             await client.session_store.delete_session(session.did)
             database.delete("browser:" + key)
             return response
@@ -315,7 +344,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         current = researcher_for(session.did)
         identifier = current["id"] if current else "researcher-" + hashlib.sha256(session.did.encode()).hexdigest()[:16]
         profile = {**(current or {}), **payload.model_dump(), "id": identifier,
-                   "name": payload.name.strip(), "did": session.did, "handle": session.handle}
+                   "name": payload.name.strip(), "did": session.did, "handle": session.handle, "autoCreated": False}
         database.save_directory_entry("researchers", identifier, session.did, profile)
         return {"researcher": profile}
 
@@ -341,7 +370,8 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     @app.post("/api/claims")
     async def claim_profile(payload: Claim, request: Request):
         _, _, _, session = await authenticated(request)
-        if researcher_for(session.did):
+        current = researcher_for(session.did)
+        if current and not current.get("autoCreated"):
             raise HTTPException(409, "Your account is already linked to a profile.")
         researcher = next((r for r in public_config()["researchers"] if r["id"] == payload.researcherId), None)
         if researcher is None or researcher.get("did"):
@@ -357,7 +387,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         name = normalized_name(profile.get("value", {}).get("displayName"))
         if not name or name != normalized_name(researcher["name"]):
             raise HTTPException(403, "Your Bluesky display name must match this researcher's full name.")
-        matches = [r for r in public_config()["researchers"] if normalized_name(r["name"]) == name]
+        matches = [r for r in public_config()["researchers"] if normalized_name(r["name"]) == name and r.get("did") != session.did]
         if len(matches) != 1:
             raise HTTPException(409, "More than one researcher has this name. This profile cannot be claimed by name alone.")
         try:
