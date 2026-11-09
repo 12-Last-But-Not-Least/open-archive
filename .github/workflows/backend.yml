@@ -43,7 +43,17 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install Railway CLI
-        run: npm install --global @railway/cli@5.71.0
+        run: |
+          for attempt in 1 2 3; do
+            if npm install --global @railway/cli@5.71.0; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Railway CLI download failed; retrying in 5 seconds."
+              sleep 5
+            fi
+          done
+          exit 1
       - name: Deploy and verify the new revision
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
