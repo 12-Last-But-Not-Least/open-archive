@@ -224,7 +224,7 @@ async function start() {
         if (!researchers.length) status.textContent = "Imported publications. No account linked.";
         else if (failures) status.textContent = "Some accounts unavailable. Showing available publications.";
         else if (!live.length) status.textContent = "No ATProto publications added yet.";
-        else status.textContent = "Updated from ATProto.";
+        else status.textContent = "";
       } finally {
         button.disabled = false;
         refreshing = false;
