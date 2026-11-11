@@ -21,7 +21,10 @@ function account() {
     createElement: element,
     createTextNode: text => text,
   };
-  const context = vm.createContext({document, URL, fetch: () => new Promise(() => {})});
+  const memory = new Map();
+  const context = vm.createContext({document, URL, URLSearchParams, location: {search: ""},
+    sessionStorage: {getItem: key => memory.get(key), setItem: (key, value) => memory.set(key, value), removeItem: key => memory.delete(key)},
+    history: {replaceState() {}}, fetch: () => new Promise(() => {})});
   vm.runInContext(readFileSync(new URL("../web/account.js", import.meta.url), "utf8"), context);
   vm.runInContext('session = {labs: []}; pdsLoaded = true;', context);
   return {context, get: selector => document.querySelector(selector),
@@ -102,22 +105,21 @@ test("DOI preview stays unchecked when no researcher name is linked", async () =
 });
 
 
-test("search shows publication year and only labs whose professor authored the paper", async () => {
+test("search shows publication year without manual lab tagging", async () => {
   const ui = account();
   ui.run('session.labs = [{id: "arc", name: "ARC", professorNames: ["Michael Yip"]}, {id: "unknown", name: "No professor"}]; api = async () => ({papers: [{id: "yes", title: "Match", authors: ["MICHAEL  YIP"], publishedAt: "2022-09-08T00:00:00Z"}, {id: "no", title: "Other", authors: ["Soham Phadke"], labIds: ["arc"]}]});');
   search(ui);
   await settle();
   const [matching, other] = ui.get("#suggestions").children;
   assert.equal(matching.children[2].textContent, "Published 2022");
-  assert.equal(matching.children[4].children.length, 2);
-  assert.equal(matching.children[4].children[1].children[0].value, "arc");
+  assert.equal(matching.children.length, 4, "no lab fieldset even for a professor-authored paper");
   assert.equal(other.children.length, 3, "no lab fieldset when professor is absent");
 });
 
 
 test("partial-name search offers the full author name, saves it, selects matching papers and bolds it", async () => {
   const ui = account();
-  ui.run('var calls = []; api = async (path, method, body) => { calls.push({path, body}); if (path === "/api/profile/author") return {researcher: {id: "soham", name: "Soham Phadke"}}; return {papers: [{id: "paper", title: "Kidney paper", authors: ["Alex Whelan", "Soham Phadke"]}]}; };');
+  ui.run('var calls = []; api = async (path, method, body) => { calls.push({path, body}); if (path === "/api/my-labs") return {labs: []}; if (path === "/api/profile/author") return {researcher: {id: "soham", name: "Soham Phadke"}}; return {papers: [{id: "paper", title: "Kidney paper", authors: ["Alex Whelan", "Soham Phadke"]}]}; };');
   ui.get("#author").value = "Soham";
   search(ui);
   await settle();
@@ -161,4 +163,21 @@ test("remove all requires confirmation and keeps profile while clearing papers",
   assert.equal(ui.run('session.researcher.name'), "Soham");
   assert.equal(ui.get("#remove-all").disabled, true);
   assert.equal(ui.get("#status").textContent, "All papers removed.");
+});
+
+test("invitation survives sign-in and requires an explicit join after author selection", async () => {
+  const ui = account();
+  ui.run('location.search = "?invite=long-invitation-token"; session.user = null; api = async () => ({lab: {id: "lab-one", name: "One Lab"}});');
+  await ui.run('renderInvitation()');
+  assert.equal(ui.get("#lab-invitation").children[1].textContent, "Sign in to join this lab.");
+  ui.run('location.search = ""; session.user = {did: "did:me"};');
+  await ui.run('renderInvitation()');
+  assert.match(ui.get("#lab-invitation").children[1].textContent, /choose your name/);
+  ui.run('session.researcher = {name: "Me"}; var joins = []; api = async (path, method, body) => { if (path.endsWith("/join")) joins.push(body); if (path === "/api/my-labs") return {labs: []}; return {lab: {id: "lab-one", name: "One Lab"}}; };');
+  await ui.run('renderInvitation()');
+  assert.equal(ui.run('joins.length'), 0);
+  ui.get("#lab-invitation").children[1].listeners.click();
+  await settle();
+  assert.equal(ui.run('joins[0].token'), "long-invitation-token");
+  assert.equal(ui.get("#lab-invitation").hidden, true);
 });

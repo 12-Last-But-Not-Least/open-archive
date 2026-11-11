@@ -70,7 +70,18 @@ class AuthorChoice(Input):
 class LabProfile(Input):
     name: str = Field(min_length=2, max_length=200)
     institution: str = Field(min_length=2, max_length=200)
-    professorName: str = Field(min_length=2, max_length=120)
+    professorName: str = Field(default="", max_length=120)
+    about: str = Field(default="", max_length=2000)
+    contactEmail: str = Field(default="", max_length=254, pattern=r"^(?:[^\s@]+@[^\s@]+\.[^\s@]+)?$")
+
+
+class LabJoin(Input):
+    token: str = Field(min_length=20, max_length=100)
+
+
+class LabMemberChange(Input):
+    did: str = Field(min_length=1, max_length=253)
+    action: str = Field(pattern=r"^(remove|admin|member)$")
 
 
 class Selection(Input):
@@ -159,7 +170,14 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             entries = {entry["id"]: entry for entry in result[kind]}
             entries.update({entry["id"]: entry for entry in database.directory_entries(kind)})
             result[kind] = [entry for entry in entries.values() if not (kind == "researchers" and entry.get("autoCreated"))]
+        memberships = database.lab_members()
+        managed = {entry["id"] for entry in database.directory_entries("labs")}
         for lab in result["labs"]:
+            if lab["id"] in managed:
+                dids = {m["did"] for m in memberships if m["lab_id"] == lab["id"]}
+                lab["members"] = sorted(r["id"] for r in result["researchers"] if r.get("did") in dids)
+                lab["managed"] = True
+                continue
             members = set(lab.get("members", []))
             for researcher in result["researchers"]:
                 if "labIds" in researcher:
@@ -362,8 +380,8 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     @app.post("/api/labs")
     async def create_lab(payload: LabProfile, request: Request):
         _, _, _, session = await authenticated(request)
-        if not all(value.strip() for value in (payload.name, payload.institution, payload.professorName)):
-            raise HTTPException(400, "Enter the lab name, institution, and professor's full name.")
+        if not all(value.strip() for value in (payload.name, payload.institution)):
+            raise HTTPException(400, "Enter the lab name and institution.")
         labs = public_config()["labs"]
         if any(normalized_name(lab["name"]) == normalized_name(payload.name) and
                normalized_name(lab.get("institution", "")) == normalized_name(payload.institution) for lab in labs):
@@ -371,12 +389,67 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         identifier = "lab-" + hashlib.sha256((normalized_name(payload.name) + "|" + normalized_name(payload.institution)).encode()).hexdigest()[:16]
         lab = {"id": identifier, "name": payload.name.strip(), "shortName": payload.name.strip(),
                "institution": payload.institution.strip(), "professorNames": [payload.professorName.strip()],
-               "members": [], "about": ""}
+               "members": [], "about": payload.about.strip(), "contactEmail": payload.contactEmail.strip()}
         try:
-            database.save_directory_entry("labs", identifier, session.did, lab)
+            database.create_lab(identifier, session.did, lab)
         except ValueError as error:
             raise HTTPException(409, str(error)) from None
         return {"lab": lab}
+
+    @app.get("/api/my-labs")
+    async def my_labs(request: Request):
+        _, _, _, session = await authenticated(request)
+        directory = public_config()
+        people = {r.get("did"): r for r in directory["researchers"] if r.get("did")}
+        memberships = database.lab_members()
+        roles = {m["lab_id"]: m["role"] for m in memberships if m["did"] == session.did}
+        labs = []
+        for lab in directory["labs"]:
+            if lab["id"] not in roles:
+                continue
+            members = [{"did": m["did"], "role": m["role"], "name": people.get(m["did"], {}).get("name", m["did"])}
+                       for m in memberships if m["lab_id"] == lab["id"]]
+            labs.append({**lab, "role": roles[lab["id"]], "people": members})
+        return {"labs": labs}
+
+    @app.get("/api/lab-invites/{token}")
+    async def preview_invite(token: str):
+        with database.connect() as db:
+            row = db.execute("SELECT lab_id FROM lab_invites WHERE token=?", (token,)).fetchone()
+        lab = next((lab for lab in public_config()["labs"] if row and lab["id"] == row["lab_id"]), None)
+        if not lab:
+            raise HTTPException(404, "This invitation is invalid. Ask the lab admin for a new link.")
+        return {"lab": {"id": lab["id"], "name": lab["name"]}}
+
+    @app.post("/api/labs/{identifier}/invite")
+    async def invite_member(identifier: str, request: Request):
+        _, _, _, session = await authenticated(request)
+        token = secrets.token_urlsafe(32)
+        try:
+            database.manage_lab(identifier, session.did, "invite", token=token)
+        except ValueError as error:
+            raise HTTPException(403, str(error)) from None
+        return {"url": origin + "/account/?invite=" + token}
+
+    @app.post("/api/labs/{identifier}/join")
+    async def join_lab(identifier: str, payload: LabJoin, request: Request):
+        _, _, _, session = await authenticated(request)
+        if not researcher_for(session.did):
+            raise HTTPException(400, "Choose your author name before joining the lab.")
+        try:
+            database.manage_lab(identifier, session.did, "join", token=payload.token)
+        except ValueError as error:
+            raise HTTPException(403, str(error)) from None
+        return {"ok": True}
+
+    @app.post("/api/labs/{identifier}/members")
+    async def change_member(identifier: str, payload: LabMemberChange, request: Request):
+        _, _, _, session = await authenticated(request)
+        try:
+            database.manage_lab(identifier, session.did, payload.action, target=payload.did)
+        except ValueError as error:
+            raise HTTPException(403, str(error)) from None
+        return {"ok": True}
 
     @app.post("/api/claims")
     async def claim_profile(payload: Claim, request: Request):

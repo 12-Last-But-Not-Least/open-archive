@@ -17,17 +17,20 @@
       <input id="handle" name="handle" placeholder="bhackel.bsky.social" autocomplete="username" required>
       <button type="submit">Sign in</button>
     </form>
+    <section id="lab-invitation" hidden></section>
     <div id="account" hidden>
       <p id="identity"></p>
       <p id="profile"></p>
       <button id="remove-profile" type="button" hidden>Remove researcher profile</button>
       <button id="logout" type="button">Sign out</button>
+      <section><h2>Your labs</h2><div id="my-labs"></div></section>
       <details>
         <summary>Add a lab</summary>
         <form id="lab-create">
           <p><label for="lab-name">Lab name</label> <input id="lab-name" required maxlength="200"></p>
           <p><label for="lab-institution">Institution</label> <input id="lab-institution" required maxlength="200"></p>
-          <p><label for="lab-professor">Professor's full name</label> <input id="lab-professor" required maxlength="120"></p>
+          <p><label for="lab-about">Description</label> <textarea id="lab-about" maxlength="2000"></textarea></p>
+          <p><label for="lab-email">Contact email</label> <input id="lab-email" type="email" maxlength="254"></p>
           <button type="submit">Add lab</button>
         </form>
       </details>

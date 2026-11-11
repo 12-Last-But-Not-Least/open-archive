@@ -72,6 +72,8 @@ function renderAuthorChoices(query) {
         try {
           const data = await api("/api/profile/author", "POST", choice);
           session.researcher = data.researcher;
+          await renderInvitation();
+          await loadLabs();
           selectionName = data.researcher.name;
           $("#author").value = selectionName;
           const link = node("a", selectionName);
@@ -135,24 +137,7 @@ function renderSuggestions() {
     const year = new Date(paper.publishedAt).getUTCFullYear();
     if (Number.isFinite(year)) row.append(node("p", "Published " + year));
     row.append(paperLink({...paper, title: "View paper"}));
-    const eligibleLabs = session.labs.filter(lab => (lab.professorNames || []).some(name =>
-      (paper.authors || []).some(author => normalizeName(author) === normalizeName(name))));
     if (added(paper)) row.append(node("p", "Already added"));
-    else if (eligibleLabs.length) {
-      const labs = node("fieldset");
-      labs.append(node("legend", "Associated labs (optional)"));
-      for (const lab of eligibleLabs) {
-        const option = node("label");
-        const input = node("input");
-        input.type = "checkbox";
-        input.name = "lab";
-        input.value = lab.id;
-        input.checked = (paper.labIds || []).includes(lab.id);
-        option.append(input, document.createTextNode(" " + lab.name));
-        labs.append(option);
-      }
-      row.append(labs);
-    }
     target.append(row);
   }
   updateAddButton();
@@ -228,7 +213,9 @@ async function load() {
     status("Sign-in was not completed. Try again.");
     history.replaceState(null, "", "/account/");
   }
+  await renderInvitation();
   if (!session.user) return;
+  await loadLabs();
   $("#identity").textContent = "@" + session.user.handle;
   $("#profile").replaceChildren();
   $("#remove-profile").hidden = !session.researcher;
@@ -327,9 +314,9 @@ $("#lab-create").addEventListener("submit", event => {
   run(event.submitter, async () => {
     await api("/api/labs", "POST", {
       name: $("#lab-name").value.trim(), institution: $("#lab-institution").value.trim(),
-      professorName: $("#lab-professor").value.trim(),
+      about: $("#lab-about").value.trim(), contactEmail: $("#lab-email").value.trim(),
     });
-    await load();
+    await loadLabs();
     $("#lab-create").reset();
     status("Lab added.");
   });
@@ -340,7 +327,7 @@ $("#import").addEventListener("submit", event => {
   run(event.submitter, async () => {
     const papers = [...document.querySelectorAll('input[name="paper"]:checked:not(:disabled)')].map(input => ({
       id: input.value,
-      labIds: [...input.closest(".publication").querySelectorAll('input[name="lab"]:checked')].map(lab => lab.value),
+      labIds: [],
     }));
     if (!papers.length) { status("Select at least one paper."); return; }
     status("Adding papers…");
@@ -351,3 +338,95 @@ $("#import").addEventListener("submit", event => {
   });
 });
 load().then(() => { $("#find-papers").disabled = false; }).catch(error => status(error.message));
+
+async function renderInvitation() {
+  const queryToken = new URLSearchParams(location.search).get("invite");
+  if (queryToken) sessionStorage.setItem("lab-invite", queryToken);
+  const token = sessionStorage.getItem("lab-invite");
+  const target = $("#lab-invitation");
+  target.replaceChildren();
+  target.hidden = !token;
+  if (!token) return;
+  try {
+    const {lab} = await api("/api/lab-invites/" + encodeURIComponent(token));
+    target.append(node("h2", "Join " + lab.name));
+    if (!session.user) target.append(node("p", "Sign in to join this lab."));
+    else if (!session.researcher) target.append(node("p", "Search for your papers and choose your name below, then join the lab."));
+    else {
+      const join = node("button", "Join lab");
+      join.type = "button";
+      join.addEventListener("click", () => run(join, async () => {
+        await api("/api/labs/" + lab.id + "/join", "POST", {token});
+        sessionStorage.removeItem("lab-invite");
+        history.replaceState(null, "", "/account/");
+        await renderInvitation();
+        await loadLabs();
+        status("Joined " + lab.name + ".");
+      }));
+      target.append(join);
+    }
+  } catch (error) {
+    target.append(node("p", error.message));
+  }
+  const dismiss = node("button", "Dismiss invitation");
+  dismiss.type = "button";
+  dismiss.addEventListener("click", () => {
+    sessionStorage.removeItem("lab-invite");
+    history.replaceState(null, "", "/account/");
+    target.replaceChildren();
+    target.hidden = true;
+  });
+  target.append(dismiss);
+}
+
+async function loadLabs() {
+  const {labs} = await api("/api/my-labs");
+  const target = $("#my-labs");
+  target.replaceChildren();
+  if (!labs.length) target.append(node("p", "Create a lab or join using an invitation from its admin."));
+  for (const lab of labs) {
+    const section = node("section");
+    const heading = node("h3");
+    const link = node("a", lab.name);
+    link.href = "/labs/" + encodeURIComponent(lab.id) + "/";
+    heading.append(link);
+    section.append(heading, node("p", "Your role: " + lab.role));
+    const action = (label, callback) => {
+      const button = node("button", label);
+      button.type = "button";
+      button.addEventListener("click", () => run(button, callback));
+      return button;
+    };
+    if (["owner", "admin"].includes(lab.role)) {
+      const invite = node("div");
+      section.append(action("Create invitation link", async () => {
+        const result = await api("/api/labs/" + lab.id + "/invite", "POST");
+        const input = node("input");
+        input.type = "text";
+        input.readOnly = true;
+        input.value = result.url;
+        input.setAttribute("aria-label", "Lab invitation link");
+        input.addEventListener("click", () => input.select());
+        invite.replaceChildren(input, node("p", "Share this link with lab members. Creating another link replaces the previous one."));
+      }), invite);
+    }
+    for (const person of lab.people) {
+      const row = node("p", person.name + " (" + person.role + ") ");
+      const change = async actionName => {
+        await api("/api/labs/" + lab.id + "/members", "POST", {did: person.did, action: actionName});
+        await loadLabs();
+      };
+      if (person.role !== "owner" && lab.role === "owner") {
+        row.append(action(person.role === "admin" ? "Remove admin access" : "Make admin", () => change(person.role === "admin" ? "member" : "admin")));
+      }
+      const self = person.did === session.user.did;
+      if (person.role !== "owner" && (self || lab.role === "owner" || (lab.role === "admin" && person.role === "member"))) {
+        row.append(action(self ? "Leave lab" : "Remove member", async () => {
+          if (confirm(self ? "Leave " + lab.name + "?" : "Remove " + person.name + " from " + lab.name + "?")) await change("remove");
+        }));
+      }
+      section.append(row);
+    }
+    target.append(section);
+  }
+}

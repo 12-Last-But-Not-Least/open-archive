@@ -500,7 +500,7 @@ def test_profile_and_lab_go_live_without_rebuild_and_survive_restart(setup):
     assert client.put("/api/profile", json={"name": "Changed Name", "labIds": []}, headers=headers(client)).status_code == 200
     directory = client.get("/data/site.json").json()
     assert len([r for r in directory["researchers"] if r.get("did") == OTHER]) == 1
-    assert next(l for l in directory["labs"] if l["id"] == lab["id"])["members"] == []
+    assert next(l for l in directory["labs"] if l["id"] == lab["id"])["members"] == [profile_id]  # Profile fields cannot change managed membership.
     assert client.put("/api/profile", json={"name": "Spoof", "did": DID}, headers=headers(client)).status_code == 422
 
 
@@ -690,3 +690,43 @@ def test_remove_all_does_not_delete_when_listing_fails(setup, monkeypatch):
     monkeypatch.setattr("backend.app.list_papers", unavailable)
     assert client.delete("/api/publications", headers=headers(client)).status_code == 502
     assert not network["requests"]
+
+
+def test_lab_invitation_membership_and_permissions(setup):
+    client, app, network, _ = setup
+    login(client, network)
+    lab = client.post("/api/labs", json={"name": "Member Lab", "institution": "University", "about": "Our research", "contactEmail": "lab@example.org"}, headers=headers(client)).json()["lab"]
+    base = "/api/labs/" + lab["id"]
+    assert client.get("/api/my-labs").json()["labs"][0]["role"] == "owner"
+    token = client.post(base + "/invite", headers=headers(client)).json()["url"].split("invite=")[1]
+    assert client.get("/api/lab-invites/" + token).json()["lab"]["name"] == "Member Lab"
+    owner_headers = headers(client)
+    with TestClient(app, base_url=ORIGIN) as other:
+        login(other, network, "other.bsky.social")
+        assert other.post(base + "/join", json={"token": token}, headers=headers(other)).status_code == 400
+        # A profile's old labIds field cannot bypass invitation membership.
+        profile = other.put("/api/profile", json={"name": "Other Author", "labIds": [lab["id"]]}, headers=headers(other)).json()["researcher"]
+        def members():
+            return next(l for l in client.get("/data/site.json").json()["labs"] if l["id"] == lab["id"])["members"]
+        assert profile["id"] not in members()
+        assert other.post(base + "/invite", headers=headers(other)).status_code == 403
+        assert other.post(base + "/join", json={"token": "invalid-token-that-is-long"}, headers=headers(other)).status_code == 403
+        assert other.post(base + "/join", json={"token": token}, headers=headers(other)).status_code == 200
+        assert profile["id"] in members()
+        change = {"did": OTHER, "action": "admin"}
+        assert other.post(base + "/members", json=change, headers=headers(other)).status_code == 403
+        assert client.post(base + "/members", json=change, headers=owner_headers).status_code == 200
+        assert other.get("/api/my-labs").json()["labs"][0]["role"] == "admin"
+        assert other.post(base + "/members", json={"did": DID, "action": "remove"}, headers=headers(other)).status_code == 403
+        rotated = other.post(base + "/invite", headers=headers(other)).json()["url"].split("invite=")[1]
+        assert client.get("/api/lab-invites/" + token).status_code == 404
+        assert other.post(base + "/members", json={"did": OTHER, "action": "remove"}, headers=headers(other)).status_code == 200
+        assert profile["id"] not in members()
+        assert other.post(base + "/join", json={"token": rotated}, headers=headers(other)).status_code == 200
+        assert client.post(base + "/members", json={"did": OTHER, "action": "remove"}, headers=owner_headers).status_code == 200
+        assert profile["id"] not in members()
+        assert other.post(base + "/invite", headers=headers(other)).status_code == 403
+    assert client.post(base + "/members", json={"did": DID, "action": "remove"}, headers=owner_headers).status_code == 403
+    assert "lab_invites" not in str(client.get("/data/site.json").json())
+    restarted = Database(app.state.database.path.parent)
+    assert restarted.lab_members(lab["id"]) == [{"lab_id": lab["id"], "did": DID, "role": "owner"}]

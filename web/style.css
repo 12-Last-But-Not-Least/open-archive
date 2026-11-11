@@ -26,3 +26,7 @@ form { margin: 16px 0; }
 .note { font-size: 14px; }
 footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #000; font-size: 14px; }
 @media (max-width: 600px) { body { margin: 16px; } }
+
+textarea { font: inherit; width: min(100%, 36rem); box-sizing: border-box; min-height: 5rem; }
+#my-labs input[readonly] { width: 100%; box-sizing: border-box; }
+#my-labs button { margin: 3px; }

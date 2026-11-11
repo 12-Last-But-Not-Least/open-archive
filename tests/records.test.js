@@ -72,3 +72,14 @@ test("a shared import remains only on the unclaimed coauthor's profile", () => {
 test("the reader rejects a mismatched DID document", async () => {
   await assert.rejects(readPublications(researcher, collection, async () => ({id: "did:plc:someoneelse"})), /identity mismatch/);
 });
+
+test("lab feed follows membership, ignores old tags, and merges coauthor duplicates", () => {
+  const papers = [
+    {doi: "10.1234/shared", publishedAt: "2024-01-01", researcherIds: ["one"], labIds: []},
+    {doi: "10.1234/shared", publishedAt: "2024-01-01", researcherIds: ["two"], labIds: []},
+    {doi: "10.1234/outside", publishedAt: "2024-01-01", researcherIds: ["outside"], labIds: ["lab"]},
+  ];
+  assert.equal(mergePublications([], filterPublications(papers, "lab", "lab", ["one", "two"])).length, 1);
+  assert.equal(filterPublications(papers, "lab", "lab", []).length, 0);
+  assert.equal(filterPublications(papers, "lab", "lab", ["two"])[0].researcherIds[0], "two");
+});

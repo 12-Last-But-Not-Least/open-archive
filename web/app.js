@@ -55,7 +55,8 @@ export function unclaimedPublications(imported, researchers) {
     .filter(paper => paper.researcherIds.length);
 }
 
-export function filterPublications(papers, page, id) {
+export function filterPublications(papers, page, id, memberIds) {
+  if (page === "lab" && memberIds) return papers.filter(paper => paper.researcherIds.some(id => memberIds.includes(id)));
   if (page === "researcher") return papers.filter(paper => paper.researcherIds.includes(id));
   if (page === "lab") return papers.filter(paper => paper.labIds.includes(id));
   return papers;
@@ -165,6 +166,14 @@ function renderProfile(config, page, id, root, apiRoot) {
       link("@" + entry.handle, "https://bsky.app/profile/" + encodeURIComponent(entry.did)) :
       element("span", "No ATProto account linked yet."));
   } else {
+    document.querySelector("#lab-about").textContent = entry.about || "";
+    const contact = document.querySelector("#lab-contact");
+    contact.replaceChildren();
+    if (entry.contactEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry.contactEmail)) {
+      const email = element("a", entry.contactEmail);
+      email.href = "mailto:" + encodeURIComponent(entry.contactEmail);
+      contact.append(email);
+    }
     const members = config.researchers.filter(researcher => (entry.members || []).includes(researcher.id));
     document.querySelector("#members-heading").textContent = "Researchers (" + members.length + ")";
     document.querySelector("#lab-members").replaceChildren(...members.map(member => {
@@ -207,8 +216,9 @@ async function start() {
   try {
     const [config, imported] = await Promise.all([getJSON(apiRoot ? apiRoot + "/data/site.json" : root + "data/site.json"), getJSON(root + "data/papers.json")]);
     renderProfile(config, page, id, root, apiRoot);
-    const unclaimed = filterPublications(unclaimedPublications(imported, config.researchers), page, id);
-    const researchers = config.researchers.filter(researcher => researcher.did && (page !== "researcher" || researcher.id === id));
+    const memberIds = page === "lab" ? (config.labs.find(lab => lab.id === id)?.members || []) : undefined;
+    const unclaimed = filterPublications(unclaimedPublications(imported, config.researchers), page, id, memberIds);
+    const researchers = config.researchers.filter(researcher => researcher.did && (page !== "researcher" || researcher.id === id) && (!memberIds || memberIds.includes(researcher.id)));
     let refreshing = false;
     async function refresh() {
       if (refreshing) return;
@@ -219,7 +229,7 @@ async function start() {
         const results = await Promise.allSettled(researchers.map(researcher => readPublications(researcher, config.collection)));
         const live = results.flatMap(result => result.status === "fulfilled" ? result.value : []);
         const failures = results.filter(result => result.status === "rejected").length;
-        const papers = mergePublications(unclaimed, filterPublications(live, page, id));
+        const papers = mergePublications(unclaimed, filterPublications(live, page, id, memberIds));
         renderPublications(papers, target);
         if (!researchers.length) status.textContent = "Imported publications. No account linked.";
         else if (failures) status.textContent = "Some accounts unavailable. Showing available publications.";

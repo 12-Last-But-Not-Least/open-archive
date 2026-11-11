@@ -28,6 +28,7 @@ class Database:
         self.cipher = Fernet(key_path.read_bytes())
         self.path = directory / "archive.sqlite3"
         with self.connect() as db:
+            migrate_members = not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='lab_members'").fetchone()
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS private_data (
                     key TEXT PRIMARY KEY, value BLOB NOT NULL, expires REAL NOT NULL
@@ -41,6 +42,13 @@ class Database:
                 CREATE TABLE IF NOT EXISTS removed_researchers (
                     id TEXT PRIMARY KEY, owner TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS lab_members (
+                    lab_id TEXT NOT NULL, did TEXT NOT NULL, role TEXT NOT NULL,
+                    PRIMARY KEY(lab_id, did)
+                );
+                CREATE TABLE IF NOT EXISTS lab_invites (
+                    lab_id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE
+                );
                 CREATE TABLE IF NOT EXISTS claims (
                     did TEXT PRIMARY KEY, handle TEXT NOT NULL, researcher_id TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL
@@ -48,6 +56,12 @@ class Database:
                 CREATE UNIQUE INDEX IF NOT EXISTS approved_researcher
                     ON claims(researcher_id) WHERE status = 'approved';
             """)
+            db.execute("INSERT OR IGNORE INTO lab_members SELECT id, owner, 'owner' FROM directory_entries WHERE kind = 'labs'")
+            if migrate_members:
+                labs = {row["id"] for row in db.execute("SELECT id FROM directory_entries WHERE kind='labs'")}
+                for row in db.execute("SELECT owner, value FROM directory_entries WHERE kind='researchers'").fetchall():
+                    for lab_id in set(json.loads(row["value"]).get("labIds", [])) & labs:
+                        db.execute("INSERT OR IGNORE INTO lab_members VALUES (?, ?, 'member')", (lab_id, row["owner"]))
         os.chmod(self.path, 0o600)
 
     def connect(self):
@@ -89,6 +103,55 @@ class Database:
                 raise ValueError("This entry already belongs to another account.")
             db.execute("INSERT INTO directory_entries VALUES (?, ?, ?, ?) ON CONFLICT(kind, id) DO UPDATE SET value=excluded.value",
                        (kind, identifier, owner, json.dumps(value)))
+
+    def lab_members(self, lab_id=None):
+        with self.connect() as db:
+            if lab_id is None:
+                return [dict(row) for row in db.execute("SELECT * FROM lab_members")]
+            return [dict(row) for row in db.execute("SELECT * FROM lab_members WHERE lab_id = ?", (lab_id,))]
+
+    def create_lab(self, identifier, owner, value):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM directory_entries WHERE kind='labs' AND id=?", (identifier,)).fetchone():
+                raise ValueError("This lab is already listed.")
+            db.execute("INSERT INTO directory_entries VALUES ('labs', ?, ?, ?)", (identifier, owner, json.dumps(value)))
+            db.execute("INSERT INTO lab_members VALUES (?, ?, 'owner')", (identifier, owner))
+
+    def manage_lab(self, lab_id, actor, action, target=None, token=None):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            lab = db.execute("SELECT 1 FROM directory_entries WHERE kind='labs' AND id=?", (lab_id,)).fetchone()
+            if not lab:
+                raise ValueError("Lab not found.")
+            role_row = db.execute("SELECT role FROM lab_members WHERE lab_id=? AND did=?", (lab_id, actor)).fetchone()
+            role = role_row["role"] if role_row else None
+            if action == "join":
+                invite = db.execute("SELECT 1 FROM lab_invites WHERE lab_id=? AND token=?", (lab_id, token)).fetchone()
+                if not invite:
+                    raise ValueError("This invitation is invalid. Ask the lab admin for a new link.")
+                db.execute("INSERT OR IGNORE INTO lab_members VALUES (?, ?, 'member')", (lab_id, actor))
+                return
+            if action == "invite":
+                if role not in ("owner", "admin"):
+                    raise ValueError("Only lab admins can create invitations.")
+                db.execute("INSERT OR REPLACE INTO lab_invites VALUES (?, ?)", (lab_id, token))
+                return
+            member = db.execute("SELECT role FROM lab_members WHERE lab_id=? AND did=?", (lab_id, target)).fetchone()
+            if not member:
+                raise ValueError("Member not found.")
+            if member["role"] == "owner":
+                raise ValueError("The lab owner cannot be removed or demoted.")
+            if action == "remove":
+                if actor != target and not (role == "owner" or (role == "admin" and member["role"] == "member")):
+                    raise ValueError("You cannot remove this member.")
+                db.execute("DELETE FROM lab_members WHERE lab_id=? AND did=?", (lab_id, target))
+            elif action in ("admin", "member"):
+                if role != "owner":
+                    raise ValueError("Only the lab owner can change admin permissions.")
+                db.execute("UPDATE lab_members SET role=? WHERE lab_id=? AND did=?", (action, lab_id, target))
+            else:
+                raise ValueError("Unknown action.")
 
     def removed_researchers(self):
         with self.connect() as db:
