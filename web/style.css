@@ -30,3 +30,7 @@ footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #000; font-s
 textarea { font: inherit; width: min(100%, 36rem); box-sizing: border-box; min-height: 5rem; }
 #my-labs input[readonly] { width: 100%; box-sizing: border-box; }
 #my-labs button { margin: 3px; }
+
+.account-help { margin: 20px 0; padding: 12px 16px; border: 1px solid #000; }
+.account-help summary { cursor: pointer; font-weight: bold; }
+.account-help li { margin: 8px 0; }

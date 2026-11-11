@@ -10,6 +10,7 @@ COPY backend ./backend
 COPY scripts ./scripts
 COPY web ./web
 COPY data ./data
+COPY ["LLM Transcripts", "./LLM Transcripts"]
 RUN python scripts/build.py --with-account
 EXPOSE 8000
 CMD ["python", "-m", "backend.serve"]

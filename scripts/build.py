@@ -117,6 +117,8 @@ def main():
     for asset in ("style.css", "app.js"):
         shutil.copyfile(ROOT / "web" / asset, output / "assets" / asset)
     shutil.copytree(ROOT / "data", output / "data")
+    if (ROOT / "LLM Transcripts").exists():
+        shutil.copytree(ROOT / "LLM Transcripts", output / "LLM Transcripts")
     (output / ".nojekyll").touch()
     render("index.html", output / "index.html", {"ROOT": "./"})
     render("publications.html", output / "publications" / "index.html", {

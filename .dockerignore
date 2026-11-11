@@ -9,6 +9,8 @@
 !web/**
 !data/
 !data/**
+!LLM Transcripts/
+!LLM Transcripts/**
 **/__pycache__/
 **/*.pyc
 **/*.sqlite3*
