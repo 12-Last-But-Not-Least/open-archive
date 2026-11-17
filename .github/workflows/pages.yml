@@ -24,6 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci --ignore-scripts
       - name: Test public record handling
         run: node --test tests/*.test.js
       - name: Install backend dependencies

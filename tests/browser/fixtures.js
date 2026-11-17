@@ -1,4 +1,6 @@
 import {test as base, expect} from '@playwright/test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 export const researcher = {id: 'bryce-hackel', name: 'Bryce Hackel', institution: 'Example University'};
 export const lab = {id: 'ucsd-arc', name: 'Advanced Robotics and Controls Lab', institution: researcher.institution,
@@ -57,6 +59,10 @@ export async function capture(page, testInfo, name) {
   const file = testInfo.outputPath(name + '.png');
   await page.screenshot({path: file, fullPage: true, animations: 'disabled'});
   await testInfo.attach(name, {path: file, contentType: 'image/png'});
+  // Stable names shared by the before/after jobs, independent of test line numbers.
+  const visual = path.join(testInfo.project.outputDir, 'visual', testInfo.project.name);
+  await fs.mkdir(visual, {recursive: true});
+  await fs.copyFile(file, path.join(visual, name + '.png'));
 }
 
 export async function accountReady(page) {

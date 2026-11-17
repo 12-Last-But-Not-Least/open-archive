@@ -144,3 +144,308 @@ The main-branch run has passed all desktop checks and the mobile checks complete
 Assistant (progress update) — 2026-11-17T01:19:51.725Z
 
 All 44 browser checks pass on both main and PR #16. I also inspected the generated popup screenshot. I’m packaging the change into a draft PR so it can be merged to enable previews across the repository.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:20:11.502Z
+
+The branch is pushed. The GitHub connector couldn’t create the draft PR because its integration lacks permission; I’m checking whether the local GitHub CLI can complete that step.
+
+--------------------
+
+Assistant — 2026-11-17T01:21:05.851Z
+
+Implemented and pushed to [feat/playwright-pr-previews](https://github.com/12-Last-But-Not-Least/open-archive/compare/main...feat/playwright-pr-previews).
+
+- Desktop/mobile screenshots for all seven page types and account flows.
+- Before/after reports on every PR update.
+- **44 checks passed on main and again on PR #16.**
+
+[Download the PR #16 screenshot report](outputs/pr16-browser-report.zip)
+
+It still needs a PR and merge to enable repository-wide. GitHub’s connector denied PR creation, and the browser wasn’t signed in. Screenshots currently appear as workflow artifacts, not inline comments.
+
+--------------------
+
+User — 2026-11-17T01:22:37.183Z
+
+how do i know what image is for waht
+
+--------------------
+
+Assistant — 2026-11-17T01:22:45.406Z
+
+Each image has a descriptive filename, and the report groups it by **page/flow + desktop or mobile**.
+
+Examples:
+
+| Image name | Shows |
+|---|---|
+| `home-help.png` | Homepage with account instructions expanded |
+| `account-owner.png` | Account page with lab-owner controls |
+| `author-search.png` | Paper search and author choices |
+| `invitation-signed-out-initial.png` | First invitation view, including the popup |
+| `invitation-signed-out-card.png` | Invitation card after closing the popup |
+| `invitation-joined.png` | Account after joining the lab |
+
+In the HTML report, click a test such as **“invitation signed-out — mobile”** to see its screenshots.
+
+For PR runs, **`before` = base branch** and **`after` = proposed changes**. Match the same test, device, and image filename between them.
+
+--------------------
+
+User — 2026-11-17T01:22:56.184Z
+
+## My request:
+oh html report nice
+
+--------------------
+
+Assistant — 2026-11-17T01:23:00.846Z
+
+Yep—the HTML report gives you a browsable list of tests with labeled screenshots, so you don’t have to sort through PNG files manually.
+
+--------------------
+
+User — 2026-11-17T01:23:31.008Z
+
+would there be any LLM way to decide what images are relevant and have those automatically added into the PR chat
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:23:34.890Z
+
+I’ll check how to connect the screenshot reports to an LLM-selected PR comment.
+
+--------------------
+
+Assistant — 2026-11-17T01:23:47.728Z
+
+Yes—**an LLM could select the most relevant screenshots and write a short visual summary directly in the PR conversation.**
+
+I’d add this after Playwright:
+
+1. Compare before/after screenshots to find which changed.
+2. Give a vision-capable LLM those images, their page/state labels, and the PR diff.
+3. Have it pick **2–4 useful before/after pairs** and explain what changed.
+4. Publish the selected images and update **one bot comment** on each new commit. GitHub supports creating and updating PR conversation comments through its API. [Documentation](https://docs.github.com/en/rest/issues/comments)
+
+For PR #16, I’d expect it to select the invitation popup, onboarding card, and mobile layout.
+
+The full HTML report would remain available so reviewers can inspect anything the model leaves out. This needs an LLM API credential, image hosting, and permission to write PR comments; it isn’t included in the current setup.
+
+--------------------
+
+User — 2026-11-17T01:24:36.408Z
+
+well passing images is expensive, couldnt it read the code to know what pages to pull
+
+--------------------
+
+Assistant — 2026-11-17T01:24:44.552Z
+
+Yes—that’s a better starting point. **Use the LLM to select screenshot names from the code diff**, without sending it images.
+
+The workflow would:
+
+1. Read the PR diff and a small catalog mapping screenshot names to pages, states, and source files.
+2. Ask the LLM to select relevant screenshots and give a brief reason.
+3. Pull those PNGs from Playwright’s output and post them in one updated PR comment.
+
+For PR #16, changes to `renderInvitation()` and invitation CSS would point to the popup, onboarding steps, and mobile invitation screenshots.
+
+Simple rules can handle obvious cases cheaply: shared CSS or navigation changes select broader coverage. The LLM handles more ambiguous changes.
+
+**Keep running the full screenshot suite; use the LLM only to curate the comment.** That keeps coverage intact while avoiding image-input costs.
+
+--------------------
+
+User — 2026-11-17T01:24:54.760Z
+
+ok how
+
+--------------------
+
+Assistant — 2026-11-17T01:25:03.264Z
+
+Add a small **screenshot catalog** to the repo:
+
+```json
+{
+  "invitation-signed-out-initial": {
+    "files": ["web/account.js", "web/account.html", "web/style.css"],
+    "description": "Invitation popup before signing in",
+    "devices": ["desktop", "mobile"]
+  }
+}
+```
+
+Then extend the PR workflow:
+
+1. **Playwright generates all screenshots**, as it does now.
+2. Send an LLM **the code diff and catalog text**—no images.
+3. Ask it to return up to four screenshot IDs:
+   ```json
+   {
+     "selected": [
+       {
+         "id": "invitation-signed-out-initial",
+         "reason": "This PR adds the invitation popup."
+       }
+     ]
+   }
+   ```
+4. Validate those IDs against the catalog.
+5. Publish the matching before/after PNGs and update one **“Visual preview”** PR comment, with a link to the full report.
+
+If selection fails, fall back to matching changed files against the catalog.
+
+The remaining setup choices are **an LLM API credential and somewhere to host the PNGs** so they display inline on GitHub. The model only chooses IDs and writes captions; ordinary code handles publishing.
+
+--------------------
+
+User — 2026-11-17T01:25:22.907Z
+
+ur talking to abstract come back
+
+--------------------
+
+Assistant — 2026-11-17T01:25:28.208Z
+
+For **your PR #16**, it would work like this:
+
+- AI reads the changes and sees: “This adds a lab invitation popup and onboarding steps.”
+- It chooses the screenshots we already named: **invitation popup**, **invitation card**, and **mobile invitation**.
+- A bot puts those before/after images in the PR conversation, with a sentence explaining each.
+
+**The AI only reads text. It never receives the images.** Playwright takes them, and the bot attaches the ones AI picked.
+
+We already built the screenshot part. What’s missing is the selector and the bot comment.
+
+--------------------
+
+User — 2026-11-17T01:25:55.529Z
+
+how does it attach. what bot. how does it call the LLM, like in the same action that the playwritght runs in?
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:26:03.684Z
+
+I’ll make this concrete for your repo: which workflow calls the model, where the PNGs go, and what posts the comment.
+
+--------------------
+
+Assistant — 2026-11-17T01:26:16.431Z
+
+Yes—it all runs in **GitHub Actions**. No separate bot service or server.
+
+For your repo, I’d use two workflows:
+
+**1. The Playwright workflow we added**
+Runs the app, takes screenshots, and uploads them as workflow artifacts.
+
+**2. A “Post visual preview” workflow**
+Starts automatically when Playwright finishes, using GitHub’s [`workflow_run` trigger](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run). It runs a small Node script that:
+
+- **Calls the LLM:** sends the PR diff and screenshot catalog over an HTTPS API request. The API key comes from a GitHub repository secret. The response contains screenshot names.
+- **Stores the chosen PNGs:** downloads the artifacts and saves the selected images to a dedicated `pr-preview-images` branch in your public repo.
+- **Posts the comment:** calls GitHub’s [comment API](https://docs.github.com/en/rest/issues/comments) using the workflow’s built-in `GITHUB_TOKEN`. The author appears as **`github-actions[bot]`**—that’s the “bot.”
+
+The comment contains ordinary Markdown:
+
+```markdown
+### Invitation popup — desktop
+![Before](URL-to-before.png)
+![After](URL-to-after.png)
+```
+
+So “attach” means **put the PNG somewhere accessible, then embed its URL in the comment**. A workflow artifact alone isn’t an inline image.
+
+The second workflow keeps the LLM key and comment-writing permission separate from running PR code. You’d only supply the LLM API key; GitHub supplies the bot identity and GitHub token.
+
+--------------------
+
+User — 2026-11-17T01:26:39.459Z
+
+suggest free APIs that you think would be capable of this
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:26:41.706Z
+
+I’ll check which APIs currently offer free usage and can reliably choose screenshot names from a code diff.
+
+--------------------
+
+User — 2026-11-17T01:26:55.616Z
+
+wait
+
+--------------------
+
+Assistant — 2026-11-17T01:26:58.029Z
+
+Okay—pausing here.
+
+--------------------
+
+User — 2026-11-17T01:27:05.884Z
+
+does the current one already highlight where changes were add
+
+--------------------
+
+Assistant — 2026-11-17T01:27:09.586Z
+
+No—the current setup takes **before and after screenshots**, but doesn’t highlight changed areas.
+
+We can add **pixel-diff images** that mark the changed pixels automatically. That needs no LLM or API key.
+
+--------------------
+
+User — 2026-11-17T01:27:19.018Z
+
+yeah thats way cheaper
+
+--------------------
+
+Assistant — 2026-11-17T01:27:22.348Z
+
+Exactly—pixel diffs need **no LLM calls or API key**, just the GitHub Actions runtime. They can highlight changed areas and let us include only screenshots with visual differences in the PR comment.
+
+--------------------
+
+User — 2026-11-17T01:27:34.319Z
+
+ok fucking do it
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:27:36.691Z
+
+I’ll add pixel-diff images, filter out unchanged screenshots, and wire the changed before/after pairs into an automatically updated PR comment.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:29:17.965Z
+
+The diff generator now creates a third image with changed pixels marked in pink. Unchanged screenshots are omitted from the comparison report. I’m adding the publisher so one bot comment shows the six largest changes and links to the full report.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:30:46.885Z
+
+The comparison tests pass for changed pixels, resized pages, and added or removed screenshots. The publisher updates a single comment and skips results from older PR commits. I’m now comparing fresh main and PR #16 captures to check the actual output.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:32:43.864Z
+
+Both browser runs passed all 44 checks. I’m generating the PR #16 comparison report now, then I’ll push the changes and open the setup PR.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:33:52.198Z
+
+PR #16 produced 16 changed screenshots and 60 unchanged ones. Comparing a capture to itself correctly produced zero changes. I’ve also checked the highlighted image visually. I’m pushing this to the existing setup branch and will try creating the PR with the Git authentication that already works for pushing.

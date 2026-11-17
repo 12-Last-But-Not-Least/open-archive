@@ -8,6 +8,8 @@
     "report:browser": "playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "^1.65.1"
+    "@playwright/test": "^1.65.1",
+    "pixelmatch": "^8.0.0",
+    "pngjs": "^7.0.0"
   }
 }

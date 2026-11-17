@@ -8,9 +8,44 @@ Open **Checks → Browser previews → Details**, then download `browser-preview
 and `browser-preview-after` from the workflow run. PNGs are under `test-results`;
 open the extracted report with `npx playwright show-report path/to/playwright-report`.
 Reports contain named screenshot attachments and failure traces, retained for 14 days.
-This produces review images; it does not enforce pixel baselines or publish images
-in PR comments. Passing means the covered UI states rendered and their assertions passed,
-not that there were no visual changes.
+After a successful PR run, **Post visual preview** compares matching screenshots
+with Pixelmatch. Unchanged images are omitted. Changed pixels are pink over a faded
+image; differently sized pages are aligned at the top-left and padded with white.
+Added/removed screenshots are labeled and use a blank panel for the missing side.
+Small antialiasing differences are ignored (Pixelmatch threshold 0.1, includeAA false).
+There is no LLM, API key, or inference cost.
+
+The `visual-diff-report` artifact contains `index.html`, before/after/diff PNGs,
+and `report.json`. Open `index.html` directly after extracting it.
+One `github-actions[bot]` PR comment displays the six comparisons with the largest
+changed-pixel counts, with links to both reports. A run with no changes updates the
+same comment to say no visual changes were detected in covered screenshots.
+Visual differences are informational; they do not fail CI. Browser failures still do.
+
+## Activation and publishing
+
+Merge both workflow files and scripts into the default branch to enable publication.
+The publishing workflow uses `workflow_run`, so it must already exist on the default
+branch. Then open/update a PR (or rerun Browser previews). Existing PRs do not get a
+comment until a new successful run. Failed runs retain Playwright failure artifacts;
+an earlier comment remains explicitly labeled with its commit.
+
+PNG images are stored on the automatically created `pr-preview-images` branch of
+this public repository, and embedded using immutable commit URLs. Images remain in
+Git history after the 14-day workflow artifacts expire. No Pages setup or external
+hosting account is needed. The workflow needs contents-write and pull-requests-write
+permission; repository/organization rules must allow its image-branch writes.
+
+The comparison job has read-only permissions and treats downloaded images as data.
+Only the final publishing job has write permissions. Both use scripts from the
+default branch, never execute PR code, validate names/report fields, and check that
+the source run still belongs to the PR's current head before updating its comment.
+
+To compare two local captures:
+
+```sh
+node scripts/visual-diff.js path/to/before/visual path/to/after/visual visual-diff
+```
 
 ## Local use
 
