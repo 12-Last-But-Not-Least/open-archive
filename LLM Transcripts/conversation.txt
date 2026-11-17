@@ -802,3 +802,196 @@ Assistant (progress update) — 2026-11-17T03:05:24.832Z
 The profile form now passes on desktop and mobile, and all backend and JavaScript checks pass. I also fixed Refresh to reload lab membership before collecting papers.
 
 I’m opening a PR with the cleanup and deployment notes. The live site won’t change until that PR is merged.
+
+--------------------
+
+Assistant — 2026-11-17T03:06:16.437Z
+
+Implemented in [PR #18](https://github.com/12-Last-But-Not-Least/open-archive/pull/18):
+
+- Removed hardcoded demo profiles, labs, and papers.
+- Unified labs and researchers around live database records.
+- Added profile creation/editing without needing a paper.
+- Changed the placeholder to `username.bsky.social`.
+- Preserved existing user-created records and AT Protocol papers.
+
+Local checks pass; GitHub checks are running. **Not deployed yet—PR #18 needs approval and merge.**
+
+--------------------
+
+User — 2026-11-17T03:10:49.540Z
+
+shouldwwe be compressibng preview images after they get diffed and stuff so uits less evil
+
+--------------------
+
+Assistant — 2026-11-17T03:11:05.863Z
+
+Yes—**compare the original PNGs, then compress the images we publish.**
+
+I’d:
+
+- Resize PR-comment images to about **1,000 pixels wide**.
+- Encode before/after images as **WebP, quality ~80**.
+- Use **lossless WebP for the diff**, keeping the pink highlights sharp.
+- Keep full-resolution PNGs in the downloadable report.
+
+Also, compression won’t stop the image branch’s Git history growing forever. We should set a retention policy for those published images too.
+
+--------------------
+
+User — 2026-11-17T03:11:25.659Z
+
+also why did previews run after i merged nmain into eitas branch
+
+--------------------
+
+Assistant — 2026-11-17T03:11:30.314Z
+
+Because merging `main` into Eita’s branch **updates the PR’s code**. GitHub sends a `pull_request` “synchronize” event, which triggers our preview workflow.
+
+That’s intentional: changes from `main` can affect how Eita’s changes look or behave. The new run compares the updated PR against its base and refreshes the same bot comment.
+
+--------------------
+
+User — 2026-11-17T03:11:47.320Z
+
+did it send comment tho
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:11:49.673Z
+
+I’ll check Eita’s PR for the latest preview comment and publishing run.
+
+--------------------
+
+User — 2026-11-17T03:12:01.243Z
+
+is it supposerd tio
+
+--------------------
+
+Assistant — 2026-11-17T03:12:03.918Z
+
+Yes—and it did. It **updated the existing [preview comment](https://github.com/12-Last-But-Not-Least/open-archive/pull/16#issuecomment-6936127019)** for commit `b5da394`, rather than posting another comment. Both capture and publishing succeeded.
+
+--------------------
+
+User — 2026-11-17T03:12:14.574Z
+
+also can um ake the images defaulrt collapsed
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:12:16.701Z
+
+I’ll make the image comparisons start collapsed in the PR comment.
+
+--------------------
+
+User — 2026-11-17T03:12:23.060Z
+
+in liike a big collapse
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:12:28.819Z
+
+Got it—one collapsed “View screenshot comparisons” section around all the images.
+
+--------------------
+
+Assistant — 2026-11-17T03:13:15.544Z
+
+Done in [PR #19](https://github.com/12-Last-But-Not-Least/open-archive/pull/19): **one collapsed “View screenshot comparisons” section** containing all images. Summary and report links stay visible.
+
+Tests pass. Takes effect after merge.
+
+--------------------
+
+User — 2026-11-17T03:14:21.452Z
+
+what is fucking check workflow
+
+--------------------
+
+Assistant — 2026-11-17T03:14:33.087Z
+
+`check` is the **backend validation job**. It runs:
+
+- Python backend tests
+- JavaScript tests
+- A Docker build to confirm the app can be packaged
+
+It doesn’t deploy anything on a PR. The name is vague—I should’ve called it **“Backend tests and build.”**
+
+--------------------
+
+User — 2026-11-17T03:14:39.902Z
+
+yeah fi
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:14:52.004Z
+
+I’ll rename it to “Backend tests and build.”
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:15:38.018Z
+
+GitHub’s branch rule also requires the name `check`. I’ll rename that requirement to match, so it still requires the same tests to pass.
+
+--------------------
+
+Assistant — 2026-11-17T03:16:33.184Z
+
+Renamed to **“Backend tests and build”** in [PR #19](https://github.com/12-Last-But-Not-Least/open-archive/pull/19), and updated the matching required-check rule.
+
+Merge #19 before #18, then update #18 from `main` so it runs the renamed check.
+
+--------------------
+
+User — 2026-11-17T03:17:20.624Z
+
+[https://github.com/12-Last-But-Not-Least/open-archive/pull/19](https://github.com/12-Last-But-Not-Least/open-archive/pull/19) why si the after running stuill
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:17:22.958Z
+
+I’ll check the “after” job’s current step and logs.
+
+--------------------
+
+Assistant — 2026-11-17T03:18:52.555Z
+
+It’s finished and passed now. **After** took 67 seconds—mostly installing dependencies and Chromium. Taking screenshots took only 18 seconds.
+
+Refresh the PR if it still shows running. [View completed run](https://github.com/12-Last-But-Not-Least/open-archive/actions/runs/44009004900).
+
+--------------------
+
+User — 2026-11-17T03:20:53.459Z
+
+theres merge conflits check now
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:20:55.409Z
+
+I’ll check PR #19’s conflicts and resolve them.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:21:31.841Z
+
+#19 is already merged. The conflicts are in #18, the live-site changes. I’ll update that branch from main and resolve them.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:22:21.513Z
+
+The conflicts were in the account tests and conversation transcript. I kept both the new profile-form tests and Eita’s invitation tests; all 33 JavaScript tests pass. I’m checking the backend and browser flows before pushing.

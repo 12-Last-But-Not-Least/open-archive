@@ -58,7 +58,10 @@ test('publisher rejects unsafe IDs and renders a bounded comment', () => {
   const report = {total: 9, unchanged: 1, changes};
   validateReport(report);
   const body = commentBody(report, {runURL: 'https://example.test/run', sha: '123456789', imageRoot: 'https://example.test/images'});
-  assert.equal((body.match(/<details open>/g) || []).length, 6);
+  assert.equal((body.match(/<details>/g) || []).length, 1);
+  assert.equal((body.match(/<\/details>/g) || []).length, 1);
+  assert(!body.includes('<details open>'));
+  assert.equal((body.match(/^### /gm) || []).length, 6);
   assert(!body.includes('state-6'));
   assert.match(commentBody({total: 9, unchanged: 9, changes: []}, {sha: '123456789', runURL: 'run'}), /No visual changes/);
   assert.throws(() => validateReport({...report, changes: [{...changes[0], id: '../../secret'}, ...changes.slice(1)]}), /Invalid screenshot/);

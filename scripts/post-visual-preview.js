@@ -25,11 +25,13 @@ export function commentBody(report, {runURL, sha, imageRoot}) {
   if (!report.changes.length) return [...lines, `No visual changes detected in the ${report.total} covered screenshots.`].join('\n');
   lines.push(`**${report.changes.length} changed screenshots**, ${report.unchanged} unchanged. Pink highlights changed pixels.`,
     'Showing up to 6 images with the largest pixel changes; all comparisons are in the visual-diff-report artifact.', '');
+  lines.push('<details><summary>View screenshot comparisons</summary>', '');
   for (const c of report.changes.slice(0, 6)) {
-    lines.push(`<details open><summary>${c.name} — ${c.device} (${c.status}, ${c.percent}%)</summary>`, '',
+    lines.push(`### ${c.name} — ${c.device} (${c.status}, ${c.percent}%)`, '',
       '| Before | After | Highlighted changes |', '| --- | --- | --- |',
-      `| ![Before](${imageRoot}/${c.id}-before.png) | ![After](${imageRoot}/${c.id}-after.png) | ![Changed pixels](${imageRoot}/${c.id}-diff.png) |`, '', '</details>', '');
+      `| ![Before](${imageRoot}/${c.id}-before.png) | ![After](${imageRoot}/${c.id}-after.png) | ![Changed pixels](${imageRoot}/${c.id}-diff.png) |`, '');
   }
+  lines.push('</details>');
   return lines.join('\n');
 }
 

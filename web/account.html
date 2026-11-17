@@ -23,12 +23,18 @@
     </details>
 
     <p id="status" role="status">Loading…</p>
+    <section id="lab-invitation" hidden></section>
     <form id="login" hidden>
       <label for="handle">ATProto handle</label>
       <input id="handle" name="handle" placeholder="username.bsky.social" autocomplete="username" required>
       <button type="submit">Sign in</button>
     </form>
-    <section id="lab-invitation" hidden></section>
+    <dialog id="invitation-dialog" aria-labelledby="invitation-title">
+      <h2 id="invitation-title"></h2>
+      <form method="dialog">
+        <button type="submit">Continue</button>
+      </form>
+    </dialog>
     <div id="account" hidden>
       <p id="identity"></p>
       <p id="profile"></p>
