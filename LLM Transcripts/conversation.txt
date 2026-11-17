@@ -1378,3 +1378,66 @@ yeah
 Assistant (progress update) — 2026-11-17T04:26:02.879Z
 
 I’ll remove the homepage box and make sign-in help a small, expandable link beneath the sign-in form on Account. I’ll add it to PR #20.
+
+--------------------
+
+Assistant — 2026-11-17T04:27:08.796Z
+
+Done in [PR #20](https://github.com/12-Last-But-Not-Least/open-archive/pull/20). Removed the homepage box; Account now has small, collapsed **“Need help signing in?”** text below sign-in, hidden once signed in.
+
+Desktop and mobile checks pass.
+
+--------------------
+
+User — 2026-11-17T04:28:17.227Z
+
+why does it have invite links we dont have that do we
+
+--------------------
+
+Assistant — 2026-11-17T04:28:22.800Z
+
+We do—invite links were added in Eita’s PR #16 and are on main now.
+
+In **Account → Your labs**, a lab owner/admin gets **Create invitation link**. Someone opens it, signs in, creates their profile, then clicks **Join lab**.
+
+You haven’t created a lab yet, so that button doesn’t appear in your account.
+
+--------------------
+
+User — 2026-11-17T04:28:35.807Z
+
+oh cool
+
+--------------------
+
+Assistant — 2026-11-17T04:28:38.247Z
+
+Yep—once you create a lab, you can try the invite flow with a teammate.
+
+--------------------
+
+User — 2026-11-17T04:33:22.922Z
+
+smth failed
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:33:24.861Z
+
+I’ll check which PR #20 job failed and fix it.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:34:16.697Z
+
+PR #20 passed and was merged; the main backend deployment succeeded. Two separate jobs failed:
+
+- **Publish website:** it runs tests before building the files they need. I’ll fix that ordering.
+- **Post visual preview:** GitHub returned an HTTP 500 while uploading an image. The screenshots themselves passed.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:35:19.185Z
+
+The website workflow now builds before testing, and all 55 backend tests pass. I also added bounded retries for temporary GitHub image-upload errors; all 35 JavaScript tests pass. I’m putting both fixes in a follow-up PR.
