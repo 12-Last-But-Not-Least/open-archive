@@ -4,9 +4,26 @@ test('home and account help', async ({page, mock}, info) => {
   await page.goto('/');
   await expect(page.getByRole('navigation')).toBeVisible();
   await capture(page, info, 'home');
-  await page.getByText('Make an Account', {exact: true}).click();
-  await expect(page.getByText('Joining a lab?', {exact: false})).toBeVisible();
+  // Keep before/after captures compatible with the old homepage help box.
+  const oldHelp = page.getByText('Make an Account', {exact: true});
+  if (await oldHelp.count()) await oldHelp.click();
   await capture(page, info, 'home-help');
+  await page.goto('/account/');
+  await accountReady(page);
+  const help = page.locator('.sign-in-help');
+  if (await help.count()) {
+    await expect(help).toBeVisible();
+    await expect(help).not.toHaveAttribute('open');
+    await help.locator('summary').click();
+    await expect(help).toContainText('Create one on Bluesky');
+  } else {
+    await page.getByText('Make an Account', {exact: true}).click();
+  }
+  await capture(page, info, 'account-sign-in-help');
+  mock.signedIn = true;
+  await page.reload();
+  await accountReady(page);
+  if (await help.count()) await expect(help).toBeHidden();
 });
 
 for (const kind of ['researchers', 'labs']) {

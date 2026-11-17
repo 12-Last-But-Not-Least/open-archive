@@ -1021,3 +1021,360 @@ I’ll check the failed run and fix what broke.
 Assistant (progress update) — 2026-11-17T03:26:15.918Z
 
 The test hit a removed API endpoint, which fell through to the static-site handler—but CI hadn’t built the site yet. My local build folder masked that. I’ll make the check build the site before running tests, then verify the GitHub run.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:27:52.516Z
+
+The fix is pushed, and the backend tests now pass on GitHub. The check is finishing the JavaScript tests and container build.
+
+--------------------
+
+Assistant — 2026-11-17T03:28:31.221Z
+
+Fixed and pushed to #18. CI needed to build the website before running backend tests; my local build folder had hidden the issue.
+
+**[Backend tests and build now passes on GitHub](https://github.com/12-Last-But-Not-Least/open-archive/actions/runs/44010324060)**, including the container build.
+
+--------------------
+
+User — 2026-11-17T04:00:38.474Z
+
+whats next
+
+--------------------
+
+Assistant — 2026-11-17T04:00:45.049Z
+
+Next is **merge [PR #18](https://github.com/12-Last-But-Not-Least/open-archive/pull/18)** once the remaining checks and required review clear.
+
+Then test the deployed site with two real accounts:
+
+1. Create a researcher profile and lab.
+2. Invite the second account and join.
+3. Add a publication and confirm it appears on the researcher and lab pages.
+4. Sign out and confirm the public pages still work.
+
+That verifies the whole demo flow against real accounts and saved data.
+
+--------------------
+
+User — 2026-11-17T04:00:57.301Z
+
+pull main
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:00:59.530Z
+
+I’ll pull the latest main into the working branch.
+
+--------------------
+
+User — 2026-11-17T04:01:10.099Z
+
+run the tes ton my browser
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:01:12.622Z
+
+I’ll open the site in your browser and check the main flows.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:01:42.882Z
+
+The Chrome connection is failing before it can open a tab. I’m trying the computer-use skill to access your browser directly.
+
+--------------------
+
+Assistant — 2026-11-17T04:02:01.862Z
+
+Browser testing was blocked: the Chrome connection failed, and computer use stopped because it couldn’t verify the current browser URL.
+
+Open [Open Archive](https://open-archive-production.up.railway.app/) in Chrome, then tell me to retry. No browser tests ran yet.
+
+--------------------
+
+User — 2026-11-17T04:02:12.962Z
+
+help me fix the chrome extension
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:02:16.127Z
+
+I’ll check the browser connection and extension setup to see why it’s failing.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:02:22.447Z
+
+The extension could list your tabs, but opening a tab failed with a `timeoutMs` error. That may be a connection bug rather than a missing installation. I’m resetting my browser session first and checking the official OpenAI documentation.
+
+--------------------
+
+Assistant — 2026-11-17T04:02:45.147Z
+
+The extension is connected enough to list tabs, but both opening and reading tabs fail with `timeoutMs`. Resetting my connection didn’t fix it.
+
+Try this:
+
+1. Update the desktop app, then fully quit and reopen it and Chrome.
+2. In **Settings → Computer Use → Chrome**, check that it says **Manage**, not **Install**.
+3. Open the ChatGPT extension from Chrome’s toolbar and check that its side panel loads.
+4. Start a new chat and send: **`@Chrome open https://open-archive-production.up.railway.app/`**
+
+These follow the [official troubleshooting steps](https://learn.chatgpt.com/docs/chrome-extension). If it still fails, tell me what the extension’s side panel shows.
+
+--------------------
+
+User — 2026-11-17T04:03:16.338Z
+
+im reindstalling the xtension
+
+--------------------
+
+Assistant — 2026-11-17T04:03:19.056Z
+
+Once it’s reinstalled, open its side panel in Chrome and check it loads. Then tell me **“retry”** and I’ll test the connection.
+
+--------------------
+
+User — 2026-11-17T04:03:52.557Z
+
+k try now
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:03:55.403Z
+
+I’ll test the connection by opening the site in Chrome.
+
+--------------------
+
+Assistant — 2026-11-17T04:04:02.329Z
+
+Still getting the same `timeoutMs` error after reinstalling.
+
+Next, fully quit and reopen the desktop app, then try a **new chat** with:
+
+`@Chrome open https://open-archive-production.up.railway.app/`
+
+The reinstall didn’t resolve it; the problem may be in this chat’s browser connection.
+
+--------------------
+
+User — 2026-11-17T04:04:53.356Z
+
+[@Chrome](plugin://browser@openai-bundled?browserFamily=chrome)
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:04:55.599Z
+
+I’ll try the Chrome connection again.
+
+--------------------
+
+Assistant — 2026-11-17T04:05:03.284Z
+
+Still failing with the same `timeoutMs` error, even with Chrome explicitly selected. I couldn’t open the site.
+
+Try a **new chat** with `@Chrome open https://open-archive-production.up.railway.app/`. If it fails there too, use `/feedback` to report the error—the extension reinstall hasn’t fixed it.
+
+--------------------
+
+User — 2026-11-17T04:05:39.512Z
+
+`@Chrome open https://open-archive-production.up.railway.app/`
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:05:42.643Z
+
+I’ll try opening it in Chrome now.
+
+--------------------
+
+Assistant — 2026-11-17T04:05:46.200Z
+
+It still fails with the same `timeoutMs` error before opening the page. This is still the same chat—please try that command in a **new chat** to test whether this chat’s connection is stuck.
+
+--------------------
+
+User — 2026-11-17T04:16:41.832Z
+
+bug fixed go try now
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:16:44.736Z
+
+I’ll try Chrome again and open the site.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:16:53.962Z
+
+Chrome is working now—the site opened successfully. I’ll check navigation and the account page next.
+
+--------------------
+
+Assistant — 2026-11-17T04:17:26.885Z
+
+Works now. I opened the site in Chrome and verified your signed-in account, profile, publications, and paper search.
+
+Found one bug: **N2D appears again as an addable DOI result even though its arXiv version is already added.**
+
+Left the account page open. No profile changes or papers published.
+
+--------------------
+
+User — 2026-11-17T04:17:46.126Z
+
+yeah whats up with that
+
+--------------------
+
+Assistant — 2026-11-17T04:17:50.559Z
+
+The search returned the same paper under two identifiers:
+
+- arXiv: `2606.14083` — recognized as already added.
+- DOI: `10.48550/arxiv.2606.14083` — treated as a different paper and automatically selected.
+
+That points to duplicate detection comparing identifiers without recognizing they refer to the same paper. We should normalize arXiv DOIs to the arXiv ID before checking existing papers and combining search results.
+
+--------------------
+
+User — 2026-11-17T04:18:06.489Z
+
+idk seems like a small issue.
+
+--------------------
+
+Assistant — 2026-11-17T04:18:09.495Z
+
+Yeah, minor polish. We can leave it for now.
+
+The bigger test is **create a lab → invite someone → have them join → confirm their papers appear on the lab page**. That’s the core flow we haven’t verified live yet.
+
+--------------------
+
+User — 2026-11-17T04:18:15.695Z
+
+whats our mvp scope again
+
+--------------------
+
+Assistant — 2026-11-17T04:18:29.333Z
+
+Our working MVP is **a lab website that updates from its members’ publication profiles**.
+
+For Thursday’s demo:
+
+1. Sign in with Bluesky.
+2. Create a researcher profile.
+3. Create a lab and invite another researcher.
+4. They join and add publications.
+5. Public researcher and lab pages show those publications automatically.
+
+**Outside the MVP:** collaborator matching, elaborate site customization, AI features, and perfect publication deduplication.
+
+The core story: **set up your lab, invite members, and get a shared publication page without manually maintaining it.**
+
+--------------------
+
+User — 2026-11-17T04:18:55.709Z
+
+ok you work on all that then thanks lmk when the PR is in
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:18:59.478Z
+
+I’ll check the full MVP flow, fix the gaps, and open a PR with the changes and test results.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:19:34.874Z
+
+Most of the core features are already in place. The main gaps are the nearly empty homepage, unclear setup guidance, and the lack of a test that takes two separate users through the whole flow.
+
+I’m adding that test against the real local backend, with Bluesky and publication services simulated. It will cover creating a lab, joining by invitation, publishing a paper, and seeing it on the public lab page without touching your live account.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:21:49.676Z
+
+The two-user flow passed on desktop: the invited member’s paper appeared on the public lab page, then disappeared from the lab when they left while remaining on their researcher page. The mobile run caught a test selector choosing the wrong lab; I’ve corrected it and am rerunning both sizes.
+
+The PR also gives the homepage a clear starting point and requires a researcher profile before creating a lab.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:23:52.279Z
+
+The backend and JavaScript checks pass. I’m finishing the desktop/mobile browser checks and adding the complete flow to the required GitHub check, so future PRs test lab membership and publication updates together.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:24:30.533Z
+
+All checks now pass locally: 55 backend tests, 33 JavaScript tests, 46 browser scenarios, and the new two-account flow on both desktop and mobile. I’m opening the PR now. Live Bluesky authorization still needs a real-account smoke test; the automated flow simulates that external service.
+
+--------------------
+
+Assistant — 2026-11-17T04:24:50.673Z
+
+[PR #20 is open](https://github.com/12-Last-But-Not-Least/open-archive/pull/20).
+
+Adds clearer onboarding and automated desktop/mobile tests for the complete lab → invite → join → publish flow.
+
+All local checks pass. GitHub checks are starting; live Bluesky sign-in still needs a real-account smoke test.
+
+--------------------
+
+User — 2026-11-17T04:25:29.495Z
+
+what version is live rn
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:25:31.521Z
+
+I’ll check the live deployment and compare it with main.
+
+--------------------
+
+Assistant — 2026-11-17T04:25:44.544Z
+
+The [live site](https://open-archive-production.up.railway.app/) is running **`63fe947`**, the merge of **PR #18**, matching current main.
+
+That includes real profiles, labs, invitations, and publications. **PR #20’s onboarding improvements aren’t live yet.**
+
+--------------------
+
+User — 2026-11-17T04:25:49.552Z
+
+this fuck ass Make an Account box is annoying u feel me
+
+--------------------
+
+Assistant — 2026-11-17T04:25:52.315Z
+
+Yeah—it’s a big bordered help box competing with the actual page. I’d remove it from the homepage and replace it on Account with a small **“Need help signing in?”** link beneath the sign-in form.
+
+--------------------
+
+User — 2026-11-17T04:25:59.603Z
+
+yeah
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:26:02.879Z
+
+I’ll remove the homepage box and make sign-in help a small, expandable link beneath the sign-in form on Account. I’ll add it to PR #20.

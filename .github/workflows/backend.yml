@@ -28,6 +28,18 @@ jobs:
       - run: python -m pytest -q tests/test_backend.py tests/test_hosting.py
       - run: npm ci --ignore-scripts
       - run: node --test tests/*.test.js
+      - run: npx playwright install --with-deps chromium
+      - name: Test the two-account MVP flow
+        run: npm run test:mvp
+      - name: Upload MVP browser report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mvp-browser-report
+          path: |
+            playwright-report-mvp/
+            test-results/mvp/
+          retention-days: 7
       - name: Build backend container
         run: docker build -t open-archive-check .
   deploy:

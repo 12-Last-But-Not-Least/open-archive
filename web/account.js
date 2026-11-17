@@ -219,6 +219,9 @@ async function load() {
   await loadLabs();
   $("#profile-name").value = session.researcher?.name || "";
   $("#profile-institution").value = session.researcher?.institution || "";
+  $("#setup-guidance").textContent = session.researcher
+    ? "Next: create a lab or join with an invitation, then add your papers. Your public lab page collects its members’ publications."
+    : "Start by opening Create or edit your researcher profile below. Save your name before creating or joining a lab; no publication is required.";
   $("#identity").textContent = "@" + session.user.handle;
   $("#profile").replaceChildren();
   $("#remove-profile").hidden = !session.researcher;
@@ -321,7 +324,7 @@ $("#lab-create").addEventListener("submit", event => {
     });
     await loadLabs();
     $("#lab-create").reset();
-    status("Lab added.");
+    status("Lab added. Use Create invitation link under Your labs to invite members, or open the lab name to view its public page.");
   });
 });
 $("#import").addEventListener("submit", event => {
@@ -362,7 +365,7 @@ async function renderInvitation() {
     target.append(node("p", "Lab invitation"), node("h2", "You've been invited to join " + lab.name));
 
     const currentStep = !session.user ? 0 : !session.researcher ? 1 : 2;
-    const steps = ["Sign in", "Choose your author name", "Join lab"];
+    const steps = ["Sign in", "Create your profile", "Join lab"];
     const progress = node("ol");
     progress.className = "invitation-steps";
     progress.setAttribute("aria-label", "Steps to join the lab");

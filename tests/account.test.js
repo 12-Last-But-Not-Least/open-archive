@@ -220,7 +220,7 @@ test("invitation highlights the current onboarding step", async () => {
   const ui = account();
   ui.run(`location.search = "?invite=invitation-token"; api = async () => ({lab: {id: "lab-one", name: "One Lab"}});`);
   const states = ['session.user = null; session.researcher = null;', 'session.user = {did: "did:me"}; session.researcher = null;', 'session.researcher = {name: "Me"};'];
-  const labels = ["Sign in", "Choose your author name", "Join lab"];
+  const labels = ["Sign in", "Create your profile", "Join lab"];
   for (const [current, state] of states.entries()) {
     ui.run(state);
     await ui.run("renderInvitation()");

@@ -11,16 +11,6 @@
   <header><nav aria-label="Main"><a href="/">Open Archive</a> | <a href="/researchers/">Researchers</a> | <a href="/labs/">Labs</a> | <a href="/publications/">Publications</a> | <a href="/account/" aria-current="page">Account</a></nav></header>
   <main>
     <h1>Account</h1>
-    <details class="account-help">
-      <summary>Make an Account</summary>
-      <ol>
-        <li>Create an account at <a href="https://bsky.app/" target="_blank" rel="noopener noreferrer">Bluesky</a>, or use the one you already have.</li>
-        <li>Open <a href="/account/">Account</a>, enter your Bluesky handle (for example, <code>username.bsky.social</code>), and click <strong>Sign in</strong>. Complete sign-in on Bluesky.</li>
-        <li>Open <strong>Create or edit your researcher profile</strong> and save your name and institution. You can also create your profile by choosing your author name under <strong>Add papers</strong>.</li>
-        <li>Check the papers that are yours, then click <strong>Add selected papers</strong>.</li>
-      </ol>
-      <p>Joining a lab? Open its invitation link, sign in, create your researcher profile, and click <strong>Join lab</strong>.</p>
-    </details>
 
     <p id="status" role="status">Loading…</p>
     <section id="lab-invitation" hidden></section>
@@ -28,6 +18,12 @@
       <label for="handle">ATProto handle</label>
       <input id="handle" name="handle" placeholder="username.bsky.social" autocomplete="username" required>
       <button type="submit">Sign in</button>
+      <details class="sign-in-help">
+        <summary>Need help signing in?</summary>
+        <p>Use your Bluesky handle, such as <code>username.bsky.social</code>. You will finish signing in on Bluesky.</p>
+        <p>No account yet? <a href="https://bsky.app/" target="_blank" rel="noopener noreferrer">Create one on Bluesky</a>, then return here.</p>
+        <p>Joining a lab? Start from its invitation link. After signing in, save your researcher profile and choose <strong>Join lab</strong>.</p>
+      </details>
     </form>
     <dialog id="invitation-dialog" aria-labelledby="invitation-title">
       <h2 id="invitation-title"></h2>
@@ -38,6 +34,7 @@
     <div id="account" hidden>
       <p id="identity"></p>
       <p id="profile"></p>
+      <p id="setup-guidance"></p>
       <button id="remove-profile" type="button" hidden>Remove researcher profile</button>
       <button id="logout" type="button">Sign out</button>
       <details>
@@ -51,6 +48,7 @@
       <section><h2>Your labs</h2><div id="my-labs"></div></section>
       <details>
         <summary>Add a lab</summary>
+        <p>Create your researcher profile first so you appear as a member of your lab.</p>
         <form id="lab-create">
           <p><label for="lab-name">Lab name</label> <input id="lab-name" required maxlength="200"></p>
           <p><label for="lab-institution">Institution</label> <input id="lab-institution" required maxlength="200"></p>
