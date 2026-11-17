@@ -336,6 +336,8 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
     @app.post("/api/labs")
     async def create_lab(payload: LabProfile, request: Request):
         _, _, _, session = await authenticated(request)
+        if not researcher_for(session.did):
+            raise HTTPException(400, "Create your researcher profile before creating a lab.")
         if not all(value.strip() for value in (payload.name, payload.institution)):
             raise HTTPException(400, "Enter the lab name and institution.")
         labs = public_config()["labs"]
@@ -391,7 +393,7 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
     async def join_lab(identifier: str, payload: LabJoin, request: Request):
         _, _, _, session = await authenticated(request)
         if not researcher_for(session.did):
-            raise HTTPException(400, "Choose your author name before joining the lab.")
+            raise HTTPException(400, "Create your researcher profile before joining the lab.")
         try:
             database.manage_lab(identifier, session.did, "join", token=payload.token)
         except ValueError as error:

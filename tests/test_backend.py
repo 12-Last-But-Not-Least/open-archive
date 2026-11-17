@@ -401,6 +401,7 @@ def test_profile_and_lab_go_live_without_rebuild_and_survive_restart(setup):
     client, app, network, _ = setup
     assert client.put("/api/profile", json={"name": "New Researcher"}, headers=headers(client)).status_code == 401
     login(client, network, "new.bsky.social")
+    assert client.put("/api/profile", json={"name": "New Researcher"}, headers=headers(client)).status_code == 200
     lab_payload = {"name": "Live Lab", "institution": "University"}
     response = client.post("/api/labs", json=lab_payload, headers=headers(client))
     assert response.status_code == 200
@@ -645,6 +646,8 @@ def test_empty_install_profile_lab_invitation_and_restart(tmp_path):
         assert "username.bsky.social" in owner.get("/account/").text
         login(owner, network)
         assert owner.get("/api/session").json()["researcher"] is None
+        assert owner.post("/api/labs", json={"name": "No owner profile", "institution": "University"}, headers=headers(owner)).status_code == 400
+        assert owner.get("/data/site.json").json()["labs"] == []
         profile = owner.put("/api/profile", json={"name": "Lab Owner", "institution": "University"}, headers=headers(owner)).json()["researcher"]
         lab = owner.post("/api/labs", json={"name": "New Lab", "institution": "University"}, headers=headers(owner)).json()["lab"]
         invitation = owner.post("/api/labs/" + lab["id"] + "/invite", headers=headers(owner)).json()
