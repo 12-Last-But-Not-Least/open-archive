@@ -7,6 +7,8 @@ function account() {
   const elements = new Map();
   function element() {
     return {value: "", children: [], listeners: {},
+      setAttribute(name, value) {this[name] = value;},
+      showModal() {this.open = true;},
       addEventListener(type, fn) { this.listeners[type] = fn; },
       replaceChildren(...children) { this.children = children; },
       append(...children) { this.children.push(...children); }};
@@ -169,15 +171,58 @@ test("invitation survives sign-in and requires an explicit join after author sel
   const ui = account();
   ui.run('location.search = "?invite=long-invitation-token"; session.user = null; api = async () => ({lab: {id: "lab-one", name: "One Lab"}});');
   await ui.run('renderInvitation()');
-  assert.equal(ui.get("#lab-invitation").children[1].textContent, "Sign in to join this lab.");
+  assert.equal(ui.get("#lab-invitation").children[3].textContent, "Sign in to join this lab.");
   ui.run('location.search = ""; session.user = {did: "did:me"};');
   await ui.run('renderInvitation()');
-  assert.match(ui.get("#lab-invitation").children[1].textContent, /choose your name/);
+  assert.match(ui.get("#lab-invitation").children[3].textContent, /choose your name/);
   ui.run('session.researcher = {name: "Me"}; var joins = []; api = async (path, method, body) => { if (path.endsWith("/join")) joins.push(body); if (path === "/api/my-labs") return {labs: []}; return {lab: {id: "lab-one", name: "One Lab"}}; };');
   await ui.run('renderInvitation()');
   assert.equal(ui.run('joins.length'), 0);
-  ui.get("#lab-invitation").children[1].listeners.click();
+  ui.get("#lab-invitation").children[3].listeners.click();
   await settle();
   assert.equal(ui.run('joins[0].token'), "long-invitation-token");
   assert.equal(ui.get("#lab-invitation").hidden, true);
+});
+
+test("invitation popup opens once and remembers the invitation", async () => {
+  const ui = account();
+  const dialog = ui.get("#invitation-dialog");
+  let opened = 0;
+  dialog.showModal = () => { opened++; };
+  ui.run(`location.search = "?invite=first-token"; session.user = null; api = async () => ({lab: {id: "lab-one", name: "One Lab"}});`);
+  await ui.run("renderInvitation()");
+  assert.equal(opened, 1);
+  assert.equal(ui.get("#invitation-title").textContent, "You've been invited to join One Lab");
+  assert.equal(ui.run('sessionStorage.getItem("shown-lab-invite")'), "first-token");
+  ui.run('location.search = ""; session.user = {did: "did:me"};');
+  await ui.run("renderInvitation()");
+  assert.equal(opened, 1);
+  ui.run(`shownInvitationToken = sessionStorage.getItem("shown-lab-invite");`);
+  await ui.run("renderInvitation()");
+  assert.equal(opened, 1);
+  ui.run('location.search = "?invite=second-token";');
+  await ui.run("renderInvitation()");
+  assert.equal(opened, 2);
+});
+
+test("invitation highlights the current onboarding step", async () => {
+  const ui = account();
+  ui.run(`location.search = "?invite=invitation-token"; api = async () => ({lab: {id: "lab-one", name: "One Lab"}});`);
+  const states = ['session.user = null; session.researcher = null;', 'session.user = {did: "did:me"}; session.researcher = null;', 'session.researcher = {name: "Me"};'];
+  const labels = ["Sign in", "Choose your author name", "Join lab"];
+  for (const [current, state] of states.entries()) {
+    ui.run(state);
+    await ui.run("renderInvitation()");
+    const progress = ui.get("#lab-invitation").children[2];
+    assert.equal(progress.children.length, 3);
+    progress.children.forEach((step, index) => {
+      if (index === current) {
+        assert.equal(step["aria-current"], "step");
+        assert.equal(step.children[0].textContent, labels[index]);
+      } else {
+        assert.equal(step["aria-current"], undefined);
+        assert.equal(step.textContent, labels[index]);
+      }
+    });
+  }
 });
