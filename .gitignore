@@ -8,3 +8,7 @@ __pycache__/
 .local/
 .pytest_cache/
 *.sqlite3*
+node_modules/
+playwright-report/
+test-results/
+visual-diff/

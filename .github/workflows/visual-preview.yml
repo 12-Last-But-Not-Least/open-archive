@@ -1,0 +1,76 @@
+name: Post visual preview
+on:
+  workflow_run:
+    workflows: [Browser previews]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # Use trusted default-branch tools. Never execute code from the triggering PR.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: browser-preview-before
+          path: .local/visual-before
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: browser-preview-after
+          path: .local/visual-after
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Compare screenshots and highlight changes
+        run: node scripts/visual-diff.js .local/visual-before/test-results/visual .local/visual-after/test-results/visual visual-diff
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visual-diff-report
+          path: visual-diff/
+          retention-days: 14
+          if-no-files-found: error
+
+  publish:
+    needs: compare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only serialize the same PR branch; unrelated PRs must not displace each other.
+    concurrency:
+      group: publish-visual-preview-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: visual-diff-report
+          path: visual-diff
+      - name: Publish changed images and update PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {pathToFileURL} = require('node:url');
+            const {publish} = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/post-visual-preview.js`).href);
+            await publish({github, context, core});
