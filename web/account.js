@@ -2,6 +2,7 @@ let session, suggestions = [], publications = [], pdsLoaded = false;
 let searchVersion = 0;
 let removingAll = false;
 let selectionName = "";
+let shownInvitationToken = sessionStorage.getItem("shown-lab-invite");
 const normalizeName = name => String(name || "").normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 const $ = selector => document.querySelector(selector);
 const status = message => { $("#status").textContent = message; };
@@ -349,7 +350,32 @@ async function renderInvitation() {
   if (!token) return;
   try {
     const {lab} = await api("/api/lab-invites/" + encodeURIComponent(token));
-    target.append(node("h2", "Join " + lab.name));
+    if (shownInvitationToken !== token) {
+      $("#invitation-title").textContent =
+        "You've been invited to join " + lab.name;
+
+      $("#invitation-dialog").showModal();
+      shownInvitationToken = token;
+      sessionStorage.setItem("shown-lab-invite", token);
+    }
+    target.append(node("p", "Lab invitation"), node("h2", "You've been invited to join " + lab.name));
+
+    const currentStep = !session.user ? 0 : !session.researcher ? 1 : 2;
+    const steps = ["Sign in", "Choose your author name", "Join lab"];
+    const progress = node("ol");
+    progress.className = "invitation-steps";
+    progress.setAttribute("aria-label", "Steps to join the lab");
+    steps.forEach((label, index) => {
+      const step = node("li");
+      if (index === currentStep) {
+        step.setAttribute("aria-current", "step");
+        step.append(node("strong", label));
+      } else {
+        step.textContent = label;
+      }
+      progress.append(step);
+    });
+    target.append(progress);
     if (!session.user) target.append(node("p", "Sign in to join this lab."));
     else if (!session.researcher) target.append(node("p", "Search for your papers and choose your name below, then join the lab."));
     else {
