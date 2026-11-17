@@ -31,9 +31,8 @@ textarea { font: inherit; width: min(100%, 36rem); box-sizing: border-box; min-h
 #my-labs input[readonly] { width: 100%; box-sizing: border-box; }
 #my-labs button { margin: 3px; }
 
-.account-help { margin: 20px 0; padding: 12px 16px; border: 1px solid #000; }
-.account-help summary { cursor: pointer; font-weight: bold; }
-.account-help li { margin: 8px 0; }
+.sign-in-help { margin-top: 12px; font-size: 14px; }
+.sign-in-help summary { cursor: pointer; text-decoration: underline; }
 
 #invitation-dialog {width: min(28rem, 90vw); box-sizing: border-box; padding: 1.5rem; border: 1px solid #333;}
 #invitation-dialog::backdrop {background: rgba(0, 0, 0, 0.45);}

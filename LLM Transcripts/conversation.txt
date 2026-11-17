@@ -1324,3 +1324,57 @@ The backend and JavaScript checks pass. I’m finishing the desktop/mobile brows
 Assistant (progress update) — 2026-11-17T04:24:30.533Z
 
 All checks now pass locally: 55 backend tests, 33 JavaScript tests, 46 browser scenarios, and the new two-account flow on both desktop and mobile. I’m opening the PR now. Live Bluesky authorization still needs a real-account smoke test; the automated flow simulates that external service.
+
+--------------------
+
+Assistant — 2026-11-17T04:24:50.673Z
+
+[PR #20 is open](https://github.com/12-Last-But-Not-Least/open-archive/pull/20).
+
+Adds clearer onboarding and automated desktop/mobile tests for the complete lab → invite → join → publish flow.
+
+All local checks pass. GitHub checks are starting; live Bluesky sign-in still needs a real-account smoke test.
+
+--------------------
+
+User — 2026-11-17T04:25:29.495Z
+
+what version is live rn
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:25:31.521Z
+
+I’ll check the live deployment and compare it with main.
+
+--------------------
+
+Assistant — 2026-11-17T04:25:44.544Z
+
+The [live site](https://open-archive-production.up.railway.app/) is running **`63fe947`**, the merge of **PR #18**, matching current main.
+
+That includes real profiles, labs, invitations, and publications. **PR #20’s onboarding improvements aren’t live yet.**
+
+--------------------
+
+User — 2026-11-17T04:25:49.552Z
+
+this fuck ass Make an Account box is annoying u feel me
+
+--------------------
+
+Assistant — 2026-11-17T04:25:52.315Z
+
+Yeah—it’s a big bordered help box competing with the actual page. I’d remove it from the homepage and replace it on Account with a small **“Need help signing in?”** link beneath the sign-in form.
+
+--------------------
+
+User — 2026-11-17T04:25:59.603Z
+
+yeah
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:26:02.879Z
+
+I’ll remove the homepage box and make sign-in help a small, expandable link beneath the sign-in form on Account. I’ll add it to PR #20.
