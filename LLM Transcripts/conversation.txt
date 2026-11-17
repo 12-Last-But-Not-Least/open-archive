@@ -995,3 +995,29 @@ Assistant (progress update) — 2026-11-17T03:21:31.841Z
 Assistant (progress update) — 2026-11-17T03:22:21.513Z
 
 The conflicts were in the account tests and conversation transcript. I kept both the new profile-form tests and Eita’s invitation tests; all 33 JavaScript tests pass. I’m checking the backend and browser flows before pushing.
+
+--------------------
+
+Assistant — 2026-11-17T03:23:12.496Z
+
+Fixed and pushed. The conflicts were in [PR #18](https://github.com/12-Last-But-Not-Least/open-archive/pull/18); #19 was already merged.
+
+GitHub confirms no conflicts now. All 55 backend, 33 JavaScript, and 12 browser checks passed locally. GitHub checks and review requirements still apply.
+
+--------------------
+
+User — 2026-11-17T03:25:31.764Z
+
+check failed
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:25:33.624Z
+
+I’ll check the failed run and fix what broke.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:26:15.918Z
+
+The test hit a removed API endpoint, which fell through to the static-site handler—but CI hadn’t built the site yet. My local build folder masked that. I’ll make the check build the site before running tests, then verify the GitHub run.
