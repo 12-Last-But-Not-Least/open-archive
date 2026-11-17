@@ -82,7 +82,7 @@ class FakeSearch:
 
     async def search(self, author):
         self.calls.append(author)
-        return [{**PAPER, "title": "New paper", "id": "arxiv:2606.99999", "arxivId": "2606.99999", "labIds": []}]
+        return [{**PAPER, "title": "New paper", "id": "arxiv:2606.99999", "arxivId": "2606.99999"}]
 
 
 @pytest.fixture
@@ -99,8 +99,9 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.app.search_datacite", empty_datacite)
     network = {"requests": [], "records": {}, "revoked": []}
     searcher = FakeSearch()
-    app = create_app(directory=tmp_path, config=copy.deepcopy(CONFIG), catalog=[copy.deepcopy(PAPER)],
-                     searcher=searcher, oauth_factory=lambda *args: FakeOAuth(*args, network))
+    app = create_app(directory=tmp_path, searcher=searcher, oauth_factory=lambda *args: FakeOAuth(*args, network))
+    app.state.database.save_directory_entry("researchers", "bryce-hackel", DID, copy.deepcopy(CONFIG["researchers"][0]))
+    app.state.database.create_lab("ucsd-arc", DID, copy.deepcopy(CONFIG["labs"][0]))
     with TestClient(app, base_url=ORIGIN) as client:
         yield client, app, network, searcher
 
@@ -114,6 +115,10 @@ def login(client, network, handle="bhackel.bsky.social"):
     assert response.status_code == 200
     response = client.get("/auth/callback", params={"code": "test-code", "state": network["state"], "iss": "https://bsky.social"}, follow_redirects=False)
     assert response.status_code == 303 and response.headers["location"] == "/account/"
+    # Explicit test-only suggestion, never a production catalog.
+    import hashlib
+    key = hashlib.sha256(client.cookies.get(COOKIE).encode()).hexdigest()
+    client.app.state.database.put("suggestions:" + key, {PAPER["id"]: copy.deepcopy(PAPER)})
 
 
 def test_real_login_adapter_has_minimal_publication_permissions(tmp_path):
@@ -172,7 +177,7 @@ def test_suggestions_do_not_publish_and_selected_import_is_idempotent(setup):
     assert client.get("/api/suggestions").json()["papers"][0]["id"] == PAPER["id"]
     assert client.get("/api/publications").json()["papers"] == []
     assert searcher.calls == []
-    payload = {"papers": [{"id": PAPER["id"], "labIds": []}]}
+    payload = {"papers": [{"id": PAPER["id"]}]}
     first = client.post("/api/publications", json=payload, headers=headers(client))
     assert first.json()["results"][0]["status"] == "added"
     assert client.post("/api/publications", json=payload, headers=headers(client)).json()["results"][0]["status"] == "already-added"
@@ -240,68 +245,6 @@ def test_partial_import_reports_successes_and_can_retry(setup):
     assert len(network["records"][DID]) == 1
 
 
-def test_claim_links_matching_name_immediately(setup, monkeypatch):
-    client, app, network, _ = setup
-    async def profile(url, **kwargs):
-        assert kwargs["params"] == {"repo": OTHER, "collection": "app.bsky.actor.profile", "rkey": "self"}
-        return {"uri": f"at://{OTHER}/app.bsky.actor.profile/self", "value": {"displayName": "  JAY  "}}
-    monkeypatch.setattr("backend.app.get_json", profile)
-    login(client, network, "jay.bsky.social")
-    assert client.post("/api/claims", json={"researcherId": "bryce-hackel"}, headers=headers(client)).status_code == 409
-    app.state.database.request_claim(OTHER, "jay.bsky.social", "jay")
-    response = client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client))
-    assert response.status_code == 200
-    assert response.json()["status"] == "approved"
-    assert client.get("/data/site.json").json()["researchers"][1]["did"] == OTHER
-    assert client.get("/api/session").json()["researcher"]["id"] == "jay"
-    assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 409
-
-
-@pytest.mark.parametrize("name", ["Bryce Hackel", "", None, "Jay Smith"])
-def test_claim_rejects_nonmatching_or_missing_names(setup, monkeypatch, name):
-    client, app, network, _ = setup
-    async def profile(*args, **kwargs):
-        return {"uri": f"at://{OTHER}/app.bsky.actor.profile/self", "value": {"displayName": name}}
-    monkeypatch.setattr("backend.app.get_json", profile)
-    login(client, network, "jay.bsky.social")
-    assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 403
-    assert app.state.database.claims() == []
-
-
-def test_claim_rejects_duplicate_names(tmp_path, monkeypatch):
-    config = copy.deepcopy(CONFIG)
-    config["researchers"].append({"id": "other-jay", "name": " JAY ", "did": ""})
-    network = {"requests": [], "records": {}, "revoked": []}
-    async def profile(*args, **kwargs):
-        return {"uri": f"at://{OTHER}/app.bsky.actor.profile/self", "value": {"displayName": "Jay"}}
-    monkeypatch.setattr("backend.app.get_json", profile)
-    app = create_app(directory=tmp_path, config=config, oauth_factory=lambda *args: FakeOAuth(*args, network))
-    with TestClient(app, base_url=ORIGIN) as client:
-        login(client, network, "jay.bsky.social")
-        assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 409
-        assert app.state.database.claims() == []
-
-
-def test_claim_does_not_link_when_profile_lookup_fails(setup, monkeypatch):
-    client, app, network, _ = setup
-    async def profile(*args, **kwargs):
-        raise OSError("PDS unavailable")
-    monkeypatch.setattr("backend.app.get_json", profile)
-    login(client, network, "jay.bsky.social")
-    assert client.post("/api/claims", json={"researcherId": "jay"}, headers=headers(client)).status_code == 502
-    assert app.state.database.claims() == []
-
-
-def test_claim_storage_protects_both_account_and_profile(tmp_path):
-    database = Database(tmp_path)
-    database.claim_by_name(OTHER, "jay.bsky.social", "jay")
-    with pytest.raises(ValueError):
-        database.claim_by_name(DID, "another.bsky.social", "jay")
-    with pytest.raises(ValueError):
-        database.claim_by_name(OTHER, "jay.bsky.social", "another-profile")
-    assert Database(tmp_path).claims()[0]["did"] == OTHER
-
-
 def test_name_normalization():
     assert normalized_name("  SOHAM\t Phadke ") == normalized_name("Soham Phadke")
     assert normalized_name("Jose\u0301") == normalized_name("Jos\u00e9")
@@ -348,7 +291,7 @@ def test_doi_lookup_preview_then_publish_and_deduplicate(setup, monkeypatch):
     assert response.status_code == 200
     assert response.json()["papers"][0]["id"] == paper["id"]
     assert network["records"] == {}  # Lookup does not publish.
-    payload = {"papers": [{"id": paper["id"], "labIds": []}]}
+    payload = {"papers": [{"id": paper["id"]}]}
     assert client.post("/api/publications", json=payload, headers=headers(client)).json()["results"][0]["status"] == "added"
     assert network["records"][DID][0]["value"]["doi"] == "10.1234/test"
     assert client.post("/api/publications", json=payload, headers=headers(client)).json()["results"][0]["status"] == "already-added"
@@ -362,20 +305,6 @@ def test_doi_lookup_errors(setup, monkeypatch, error, status):
     monkeypatch.setattr("backend.app.lookup_doi", lookup)
     login(client, network)
     assert client.post("/api/doi/lookup", json={"doi": "10.1234/test"}, headers=headers(client)).status_code == status
-
-
-def test_competing_claims_have_one_winner(tmp_path):
-    from concurrent.futures import ThreadPoolExecutor
-    database = Database(tmp_path)
-    def claim(did):
-        try:
-            database.claim_by_name(did, "jay.bsky.social", "jay")
-            return True
-        except ValueError:
-            return False
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        assert sorted(pool.map(claim, [DID, OTHER])) == [False, True]
-    assert len(database.claims()) == 1
 
 
 def test_store_survives_restart_and_expires_states(tmp_path):
@@ -472,12 +401,12 @@ def test_profile_and_lab_go_live_without_rebuild_and_survive_restart(setup):
     client, app, network, _ = setup
     assert client.put("/api/profile", json={"name": "New Researcher"}, headers=headers(client)).status_code == 401
     login(client, network, "new.bsky.social")
-    lab_payload = {"name": "Live Lab", "institution": "University", "professorName": "Professor Person"}
+    lab_payload = {"name": "Live Lab", "institution": "University"}
     response = client.post("/api/labs", json=lab_payload, headers=headers(client))
     assert response.status_code == 200
     lab = response.json()["lab"]
     assert client.post("/api/labs", json=lab_payload, headers=headers(client)).status_code == 409
-    response = client.put("/api/profile", json={"name": "New <Researcher>", "institution": "University", "labIds": [lab["id"]]}, headers=headers(client))
+    response = client.put("/api/profile", json={"name": "New <Researcher>", "institution": "University"}, headers=headers(client))
     assert response.status_code == 200
     researcher = response.json()["researcher"]
     assert researcher["did"] == OTHER
@@ -492,33 +421,16 @@ def test_profile_and_lab_go_live_without_rebuild_and_survive_restart(setup):
     assert "New &lt;Researcher&gt;" in lab_page.text and "{{" not in lab_page.text
     assert client.get("/researchers/missing/").status_code == 404
     assert client.get("/labs/missing/").status_code == 404
-    restarted = create_app(directory=app.state.database.path.parent, config=copy.deepcopy(CONFIG), catalog=[])
+    restarted = create_app(directory=app.state.database.path.parent)
     with TestClient(restarted, base_url=ORIGIN) as fresh:
         directory = fresh.get("/data/site.json").json()
         assert next(r for r in directory["researchers"] if r["id"] == profile_id)["name"] == "New <Researcher>"
         assert next(l for l in directory["labs"] if l["id"] == lab["id"])["members"] == [profile_id]
-    assert client.put("/api/profile", json={"name": "Changed Name", "labIds": []}, headers=headers(client)).status_code == 200
+    assert client.put("/api/profile", json={"name": "Changed Name"}, headers=headers(client)).status_code == 200
     directory = client.get("/data/site.json").json()
     assert len([r for r in directory["researchers"] if r.get("did") == OTHER]) == 1
     assert next(l for l in directory["labs"] if l["id"] == lab["id"])["members"] == [profile_id]  # Profile fields cannot change managed membership.
     assert client.put("/api/profile", json={"name": "Spoof", "did": DID}, headers=headers(client)).status_code == 422
-
-
-def test_lab_tag_requires_professor_even_for_direct_api_request(setup):
-    client, _, network, _ = setup
-    login(client, network)
-    labs = []
-    for name in ["Bryce Hackel", "Michael Yip"]:
-        lab = client.post("/api/labs", json={"name": name + " Lab", "institution": "University", "professorName": name}, headers=headers(client)).json()["lab"]
-        labs.append(lab)
-    client.get("/api/suggestions")
-    payload = {"papers": [{"id": PAPER["id"], "labIds": [labs[1]["id"]]}]}
-    denied = client.post("/api/publications", json=payload, headers=headers(client))
-    assert denied.status_code == 400 and "professor" in denied.json()["detail"]
-    assert not network["records"]
-    payload["papers"][0]["labIds"] = [labs[0]["id"]]
-    assert client.post("/api/publications", json=payload, headers=headers(client)).status_code == 200
-    assert network["records"][DID][0]["value"]["labIds"] == [labs[0]["id"]]
 
 
 def test_directory_storage_prevents_other_owner_overwrite(tmp_path):
@@ -635,26 +547,17 @@ def test_remove_own_profile_preserves_other_accounts_and_pds_records(setup):
     assert chosen.json()["researcher"]["did"] == OTHER
 
 
-def test_removed_seeded_profile_stays_removed_after_restart(setup):
+def test_deleted_profile_stays_removed_after_restart(setup):
     client, app, network, _ = setup
     login(client, network)
     assert client.delete("/api/profile", headers=headers(client)).status_code == 200
     assert client.get("/api/session").json()["researcher"] is None
-    restarted = create_app(directory=app.state.database.path.parent, config=copy.deepcopy(CONFIG), catalog=[])
+    restarted = create_app(directory=app.state.database.path.parent)
     with TestClient(restarted, base_url=ORIGIN) as fresh:
         directory = fresh.get("/data/site.json").json()
         assert all(r["id"] != "bryce-hackel" for r in directory["researchers"])
         assert directory["labs"][0]["members"] == []
         assert fresh.get("/researchers/bryce-hackel/").status_code == 404
-
-
-def test_remove_profile_releases_legacy_claim(setup):
-    client, app, network, _ = setup
-    login(client, network, "jay.bsky.social")
-    app.state.database.claim_by_name(OTHER, "jay.bsky.social", "jay")
-    assert client.delete("/api/profile", headers=headers(client)).status_code == 200
-    assert app.state.database.claims() == []
-    assert client.get("/api/session").json()["researcher"] is None
 
 
 def test_remove_all_is_scoped_to_signed_in_account_and_retries_failures(setup, monkeypatch):
@@ -705,7 +608,7 @@ def test_lab_invitation_membership_and_permissions(setup):
         login(other, network, "other.bsky.social")
         assert other.post(base + "/join", json={"token": token}, headers=headers(other)).status_code == 400
         # A profile's old labIds field cannot bypass invitation membership.
-        profile = other.put("/api/profile", json={"name": "Other Author", "labIds": [lab["id"]]}, headers=headers(other)).json()["researcher"]
+        profile = other.put("/api/profile", json={"name": "Other Author"}, headers=headers(other)).json()["researcher"]
         def members():
             return next(l for l in client.get("/data/site.json").json()["labs"] if l["id"] == lab["id"])["members"]
         assert profile["id"] not in members()
@@ -730,3 +633,36 @@ def test_lab_invitation_membership_and_permissions(setup):
     assert "lab_invites" not in str(client.get("/data/site.json").json())
     restarted = Database(app.state.database.path.parent)
     assert restarted.lab_members(lab["id"]) == [{"lab_id": lab["id"], "did": DID, "role": "owner"}]
+
+
+def test_empty_install_profile_lab_invitation_and_restart(tmp_path):
+    network = {"requests": [], "records": {}, "revoked": []}
+    app = create_app(directory=tmp_path, oauth_factory=lambda *args: FakeOAuth(*args, network))
+    with TestClient(app, base_url=ORIGIN) as owner, TestClient(app, base_url=ORIGIN) as member:
+        directory = owner.get("/data/site.json").json()
+        assert directory["researchers"] == [] and directory["labs"] == []
+        assert owner.get("/labs/ucsd-arc/").status_code == 404
+        assert "username.bsky.social" in owner.get("/account/").text
+        login(owner, network)
+        assert owner.get("/api/session").json()["researcher"] is None
+        profile = owner.put("/api/profile", json={"name": "Lab Owner", "institution": "University"}, headers=headers(owner)).json()["researcher"]
+        lab = owner.post("/api/labs", json={"name": "New Lab", "institution": "University"}, headers=headers(owner)).json()["lab"]
+        invitation = owner.post("/api/labs/" + lab["id"] + "/invite", headers=headers(owner)).json()
+        from urllib.parse import urlparse, parse_qs
+        token = parse_qs(urlparse(invitation["url"]).query)["invite"][0]
+        login(member, network, "member.bsky.social")
+        assert member.put("/api/profile", json={"name": "Member", "labIds": [lab["id"]]}, headers=headers(member)).status_code == 422
+        member_profile = member.put("/api/profile", json={"name": "Member"}, headers=headers(member)).json()["researcher"]
+        assert member.post("/api/labs/" + lab["id"] + "/join", json={"token": token}, headers=headers(member)).status_code == 200
+        assert member.post("/api/claims", json={"researcherId": profile["id"]}, headers=headers(member)).status_code in (404, 405)
+        assert sorted(owner.get("/data/site.json").json()["labs"][0]["members"]) == sorted([profile["id"], member_profile["id"]])
+        assert owner.delete("/api/profile", headers=headers(owner)).status_code == 200
+        # A hidden/deleted public profile must not destroy ownership or PDS records.
+        assert owner.get("/api/my-labs").json()["labs"][0]["role"] == "owner"
+        recreated = owner.put("/api/profile", json={"name": "Lab Owner"}, headers=headers(owner)).json()["researcher"]
+        assert recreated["id"] == profile["id"]
+    restarted = create_app(directory=tmp_path)
+    with TestClient(restarted, base_url=ORIGIN) as fresh:
+        directory = fresh.get("/data/site.json").json()
+        assert len(directory["researchers"]) == 2 and len(directory["labs"]) == 1
+        assert fresh.get("/labs/" + lab["id"] + "/").status_code == 200

@@ -9,7 +9,7 @@ from html import escape
 from pathlib import Path
 from urllib.parse import urlparse
 
-from common import ROOT, read_json
+from common import ROOT
 
 ACCOUNT_LINK = ""
 API_ROOT = ""
@@ -24,27 +24,6 @@ def valid_url(value):
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("Expected a public HTTPS URL: " + value)
     return value
-
-
-def validate(config, papers):
-    for group in (config["researchers"], config["labs"]):
-        ids = [item["id"] for item in group]
-        if len(ids) != len(set(ids)) or any(not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", id) for id in ids):
-            raise ValueError("Page ids must be unique lowercase slugs.")
-    researchers = {item["id"] for item in config["researchers"]}
-    labs = {item["id"] for item in config["labs"]}
-    for lab in config["labs"]:
-        if set(lab["members"]) - researchers:
-            raise ValueError("A lab references an unknown researcher.")
-    for paper in papers:
-        if not paper["title"] or not paper["authors"]:
-            raise ValueError("A paper needs a title and authors.")
-        valid_url(paper["url"])
-        if paper.get("projectURL"):
-            valid_url(paper["projectURL"])
-        datetime.fromisoformat(paper["publishedAt"].replace("Z", "+00:00"))
-        if set(paper["researcherIds"]) - researchers or set(paper["labIds"]) - labs:
-            raise ValueError("A paper references an unknown researcher or lab.")
 
 
 def directory(items, kind, root):
@@ -98,17 +77,9 @@ def main():
         if parsed.path or parsed.query or parsed.fragment:
             raise ValueError("Backend URL must be an HTTPS origin without a path.")
         ACCOUNT_LINK = ' | <a href="' + text(API_ROOT) + '/account/">Account</a>'
-    config, papers = read_json(ROOT / "data/site.json"), read_json(ROOT / "data/papers.json")
-    validate(config, papers)
-    # Claimed profiles are rendered from the PDS in the browser. Imported
-    # suggestions must not resurrect deleted records, even before JS loads.
-    unclaimed = {r["id"] for r in config["researchers"] if not r.get("did")}
-    papers = [{**p, "researcherIds": [id for id in p["researcherIds"] if id in unclaimed]} for p in papers]
-    papers = [p for p in papers if p["researcherIds"]]
-    if args.with_account or API_ROOT:
-        # Local claim approvals live in SQLite and can change without a rebuild.
-        # Render from the runtime configuration, never from stale HTML imports.
-        papers = []
+    # The build contains only shells. The persistent backend owns all directory data.
+    config = {"researchers": [], "labs": []}
+    papers = []
     output = ROOT / "dist"
     # Only this script's generated output is removed on a rebuild.
     if output.exists():
@@ -130,26 +101,6 @@ def main():
             "ENTRIES": directory(config[kind], kind, "../"),
             "RESEARCHERS_CURRENT": 'aria-current="page"' if kind == "researchers" else "",
             "LABS_CURRENT": 'aria-current="page"' if kind == "labs" else "",
-        })
-    for researcher in config["researchers"]:
-        affiliations = [lab for lab in config["labs"] if researcher["id"] in lab["members"]]
-        account = ('<a href="https://bsky.app/profile/' + text(researcher["did"]) + '">@' + text(researcher["handle"]) + '</a>') if researcher.get("did") else "No ATProto account linked yet."
-        render("researcher.html", output / "researchers" / researcher["id"] / "index.html", {
-            "ROOT": "../../", "ID": text(researcher["id"]), "NAME": text(researcher["name"]),
-            "INSTITUTION": text(researcher["institution"]), "ABOUT": text(researcher["about"]),
-            "WEBSITE": text(valid_url(researcher["website"])), "ACCOUNT": account,
-            "AFFILIATIONS": " · ".join('<a href="../../labs/' + text(lab["id"]) + '/">' + text(lab["shortName"]) + '</a>' for lab in affiliations),
-            "PUBLICATIONS": publications([paper for paper in papers if researcher["id"] in paper["researcherIds"]]),
-        })
-    for lab in config["labs"]:
-        members = [researcher for researcher in config["researchers"] if researcher["id"] in lab["members"]]
-        render("lab.html", output / "labs" / lab["id"] / "index.html", {
-            "ROOT": "../../", "ID": text(lab["id"]), "NAME": text(lab["name"]), "SHORT_NAME": text(lab["shortName"]),
-            "INSTITUTION": text(lab["institution"]), "ABOUT": text(lab["about"]), "MEMBER_COUNT": len(members),
-            "MEMBERS": directory(members, "researchers", "../../"),
-            "LAB_LABEL": "Lab page · demo" if lab.get("demo") else "Lab page",
-            "DEMO_NOTE": '<p class="note">Demo page. Not the lab’s official website.</p>' if lab.get("demo") else "",
-            "PUBLICATIONS": publications([paper for paper in papers if lab["id"] in paper["labIds"]]),
         })
     print(f"Built {4 + len(config['researchers']) + len(config['labs'])} pages in {output}")
 
