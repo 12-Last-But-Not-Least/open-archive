@@ -96,7 +96,7 @@ for (const state of ['signed-out', 'choose-author', 'join', 'expired']) {
       await dialog.getByRole('button', {name: 'Continue'}).click();
       await expect(dialog).toHaveCount(0);
     }
-    const expected = {'signed-out': 'Sign in to join', 'choose-author': 'choose your name', join: 'Join lab', expired: 'Invitation not found'};
+    const expected = {'signed-out': 'Sign in to join', 'choose-author': /choose your (author )?name/, join: 'Join lab', expired: 'Invitation not found'};
     await expect(page.locator('#lab-invitation')).toContainText(expected[state]);
     await capture(page, info, `invitation-${state}-card`);
     if (state === 'join') {
@@ -107,3 +107,18 @@ for (const state of ['signed-out', 'choose-author', 'join', 'expired']) {
     }
   });
 }
+
+
+test('create a profile without publications', async ({page, mock}, info) => {
+  mock.signedIn = true;
+  await page.goto('/account/');
+  await accountReady(page);
+  test.skip(await page.locator('#profile-edit').count() === 0, 'Profile form was added in this revision.');
+  await page.locator('#account summary').filter({hasText: 'Create or edit your researcher profile'}).click();
+  await page.getByLabel('Your name', {exact: true}).fill('New Researcher');
+  await page.getByLabel('Institution', {exact: true}).first().fill('Example University');
+  await capture(page, info, 'profile-create');
+  await page.getByRole('button', {name: 'Save profile', exact: true}).click();
+  await expect(page.locator('#status')).toHaveText('Profile saved.');
+  await expect(page.locator('#profile')).toHaveText('New Researcher');
+});

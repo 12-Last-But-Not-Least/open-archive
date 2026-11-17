@@ -174,7 +174,7 @@ test("invitation survives sign-in and requires an explicit join after author sel
   assert.equal(ui.get("#lab-invitation").children[3].textContent, "Sign in to join this lab.");
   ui.run('location.search = ""; session.user = {did: "did:me"};');
   await ui.run('renderInvitation()');
-  assert.match(ui.get("#lab-invitation").children[3].textContent, /choose your name/);
+  assert.match(ui.get("#lab-invitation").children[3].textContent, /choose your author name/);
   ui.run('session.researcher = {name: "Me"}; var joins = []; api = async (path, method, body) => { if (path.endsWith("/join")) joins.push(body); if (path === "/api/my-labs") return {labs: []}; return {lab: {id: "lab-one", name: "One Lab"}}; };');
   await ui.run('renderInvitation()');
   assert.equal(ui.run('joins.length'), 0);
@@ -184,6 +184,17 @@ test("invitation survives sign-in and requires an explicit join after author sel
   assert.equal(ui.get("#lab-invitation").hidden, true);
 });
 
+
+test("profile form creates an identity without searching or publishing papers", async () => {
+  const ui = account();
+  ui.get("#profile-name").value = " New Researcher ";
+  ui.get("#profile-institution").value = " University ";
+  ui.run('globalThis.calls = []; api = async (...args) => { calls.push(args); return {}; }; load = async () => {};');
+  ui.get("#profile-edit").listeners.submit({preventDefault() {}, submitter: {disabled: false}});
+  await settle();
+  assert.deepEqual(JSON.parse(ui.run('JSON.stringify(calls)')), [["/api/profile", "PUT", {name: "New Researcher", institution: "University"}]]);
+  assert.equal(ui.get("#status").textContent, "Profile saved.");
+});
 test("invitation popup opens once and remembers the invitation", async () => {
   const ui = account();
   const dialog = ui.get("#invitation-dialog");

@@ -217,6 +217,8 @@ async function load() {
   await renderInvitation();
   if (!session.user) return;
   await loadLabs();
+  $("#profile-name").value = session.researcher?.name || "";
+  $("#profile-institution").value = session.researcher?.institution || "";
   $("#identity").textContent = "@" + session.user.handle;
   $("#profile").replaceChildren();
   $("#remove-profile").hidden = !session.researcher;
@@ -328,7 +330,6 @@ $("#import").addEventListener("submit", event => {
   run(event.submitter, async () => {
     const papers = [...document.querySelectorAll('input[name="paper"]:checked:not(:disabled)')].map(input => ({
       id: input.value,
-      labIds: [],
     }));
     if (!papers.length) { status("Select at least one paper."); return; }
     status("Adding papers…");
@@ -377,7 +378,7 @@ async function renderInvitation() {
     });
     target.append(progress);
     if (!session.user) target.append(node("p", "Sign in to join this lab."));
-    else if (!session.researcher) target.append(node("p", "Search for your papers and choose your name below, then join the lab."));
+    else if (!session.researcher) target.append(node("p", "Create your researcher profile below or choose your author name from a paper, then join the lab."));
     else {
       const join = node("button", "Join lab");
       join.type = "button";
@@ -456,3 +457,14 @@ async function loadLabs() {
     target.append(section);
   }
 }
+
+$("#profile-edit").addEventListener("submit", event => {
+  event.preventDefault();
+  run(event.submitter, async () => {
+    await api("/api/profile", "PUT", {
+      name: $("#profile-name").value.trim(), institution: $("#profile-institution").value.trim(),
+    });
+    await load();
+    status("Profile saved.");
+  });
+});
