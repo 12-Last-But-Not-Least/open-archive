@@ -5,7 +5,35 @@ import os from 'node:os';
 import path from 'node:path';
 import {PNG} from 'pngjs';
 import {compare} from '../scripts/visual-diff.js';
-import {validateReport, commentBody, publish} from '../scripts/post-visual-preview.js';
+import {validateReport, commentBody, publish, uploadImage} from '../scripts/post-visual-preview.js';
+
+test('image uploads retry transient GitHub failures with the same content', async () => {
+  const args = {content: 'test-image', encoding: 'base64'};
+  const waits = [];
+  let calls = 0;
+  const result = await uploadImage(async received => {
+    assert.equal(received, args);
+    if (++calls < 3) throw Object.assign(new Error('GitHub unavailable'), {status: 500});
+    return {data: {sha: 'uploaded'}};
+  }, args, async ms => waits.push(ms));
+  assert.equal(result.data.sha, 'uploaded');
+  assert.deepEqual(waits, [1000, 2000]);
+});
+
+test('image uploads stop after bounded retries and omit request data from errors', async () => {
+  for (const status of [503, 403]) {
+    let calls = 0;
+    await assert.rejects(uploadImage(async () => {
+      calls++;
+      throw Object.assign(new Error('large image payload'), {status});
+    }, {}, async () => {}), error => {
+      assert.match(error.message, new RegExp(`HTTP ${status}`));
+      assert(!error.message.includes('large image payload'));
+      return true;
+    });
+    assert.equal(calls, status === 503 ? 3 : 1);
+  }
+});
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'archive-visual-'));

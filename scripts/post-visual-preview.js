@@ -4,6 +4,21 @@ import path from 'node:path';
 const marker = '<!-- open-archive-visual-preview -->';
 const branch = 'pr-preview-images';
 
+export async function uploadImage(createBlob, args, wait = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+  // Blob creation is content-addressed, so retrying the same bytes is safe.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { return await createBlob(args); }
+    catch (error) {
+      const transient = [500, 502, 503, 504].includes(error.status);
+      if (!transient || attempt === 2) {
+        // Octokit's error includes the entire base64 image request. Keep logs bounded.
+        throw new Error(`Preview image upload failed (HTTP ${error.status || 'unknown'}) after ${attempt + 1} attempt(s).`);
+      }
+      await wait(1000 * 2 ** attempt);
+    }
+  }
+}
+
 export function validateReport(report) {
   if (!Number.isInteger(report.total) || report.total < 1 || report.total > 600 ||
       !Number.isInteger(report.unchanged) || report.unchanged < 0 || !Array.isArray(report.changes) ||
@@ -55,7 +70,7 @@ export async function publish({github, context, core, directory = 'visual-diff'}
         const filename = `${c.id}-${side}.png`;
         const bytes = fs.readFileSync(path.join(directory, filename));
         if (bytes.length > 15_000_000 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('Invalid publish image');
-        const blob = await github.rest.git.createBlob({owner, repo, encoding: 'base64', content: bytes.toString('base64')});
+        const blob = await uploadImage(args => github.rest.git.createBlob(args), {owner, repo, encoding: 'base64', content: bytes.toString('base64')});
         tree.push({path: `${prefix}/${filename}`, mode: '100644', type: 'blob', sha: blob.data.sha});
       }
     }
