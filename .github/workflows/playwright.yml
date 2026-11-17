@@ -1,0 +1,61 @@
+name: Browser previews
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-previews-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: Screenshots (${{ matrix.version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ github.event_name == 'pull_request' && fromJSON('["before", "after"]') || fromJSON('["after"]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out application version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.version == 'before' && github.event.pull_request.base.sha || github.sha }}
+          path: .local/preview-app
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: python -m pip install -r .local/preview-app/requirements.txt
+      - run: npx playwright install --with-deps chromium
+      - name: Capture desktop and mobile states
+        run: npm run test:browser
+        env:
+          PLAYWRIGHT_APP_DIR: .local/preview-app
+      - name: Upload screenshots and interactive report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-preview-${{ matrix.version }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+      - name: Explain report location
+        if: always()
+        run: |
+          echo '### Browser preview: ${{ matrix.version }}' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Download the browser-preview artifact from this run for full-page PNGs, the HTML report, and failure traces. PR runs capture both the base commit (before) and proposed merge (after) with the same fixtures.' >> "$GITHUB_STEP_SUMMARY"
