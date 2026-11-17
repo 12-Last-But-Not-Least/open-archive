@@ -77,5 +77,3 @@ class FakeSearch:
     async def search(self, author):
         self.calls.append(author)
         return [{**PAPER, "title": "New paper", "id": "arxiv:2606.99999", "arxivId": "2606.99999"}]
-
-
