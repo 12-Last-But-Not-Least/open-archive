@@ -449,3 +449,453 @@ Both browser runs passed all 44 checks. I’m generating the PR #16 comparison r
 Assistant (progress update) — 2026-11-17T01:33:52.198Z
 
 PR #16 produced 16 changed screenshots and 60 unchanged ones. Comparing a capture to itself correctly produced zero changes. I’ve also checked the highlighted image visually. I’m pushing this to the existing setup branch and will try creating the PR with the Git authentication that already works for pushing.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:34:48.552Z
+
+[PR #17](https://github.com/12-Last-But-Not-Least/open-archive/pull/17) is open, and GitHub is running the checks. The automatic comment publisher will become active once this PR is merged, because it runs from the default branch.
+
+--------------------
+
+Assistant — 2026-11-17T01:35:22.262Z
+
+Done—[PR #17](https://github.com/12-Last-But-Not-Least/open-archive/pull/17) adds:
+
+- Pink highlights on changed pixels.
+- Automatic filtering of unchanged screenshots.
+- One updated PR comment with before/after/diff images.
+- No LLM or API key.
+
+**GitHub checks passed.** Tested against PR #16: 16 changed screenshots, 60 unchanged.
+
+[View the sample report]([user directory]/Documents/Codex/2026-11-16/https-github-com-12-last-but/outputs/pr16-visual-diff/index.html).
+
+**Merge PR #17 to activate automatic comments.**
+
+--------------------
+
+User — 2026-11-17T01:37:36.396Z
+
+## My request:
+can you check if the images inthe linked report are reasonable
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:37:39.678Z
+
+I’ll inspect the report’s before, after, and highlighted images to check whether the comparisons are useful and correctly matched.
+
+--------------------
+
+Assistant — 2026-11-17T01:38:59.770Z
+
+Yes—the before/after images I checked show meaningful invitation changes, but **the report’s ranking needs improvement**.
+
+- **Correct comparisons:** the new invitation card, steps, popup, and expired message are visible.
+- **Too much pink:** the popup darkens the background, so almost everything registers as changed. Those six popup comparisons take all six PR-comment slots.
+- **Mobile capture artifact:** the dark backdrop stops partway down the full-page screenshot because it covers only the viewport.
+- **Duplicates:** expired-invitation “initial” and “card” images are identical.
+
+I’d keep one popup example, prioritize the card comparisons, remove duplicates, and capture popups at viewport size. The screenshots are useful; selecting only the largest pixel differences makes the PR summary repetitive.
+
+--------------------
+
+User — 2026-11-17T01:43:42.592Z
+
+## My request:
+ok merge the PR
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:43:44.918Z
+
+I’ll check the preview automation PR’s status, then merge it.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T01:43:53.311Z
+
+The GitHub connector previously couldn’t write to this repository, so I’m using the configured GitHub authentication to merge PR #17.
+
+--------------------
+
+Assistant — 2026-11-17T01:44:23.945Z
+
+[PR #17](https://github.com/12-Last-But-Not-Least/open-archive/pull/17) is ready for review and checks passed, but GitHub blocked the merge: **one approving review from someone with write access is required**.
+
+I removed draft status. It hasn’t been merged.
+
+--------------------
+
+User — 2026-11-17T02:21:03.385Z
+
+## My request:
+how can we get this to show up on eita pr
+
+--------------------
+
+Assistant — 2026-11-17T02:21:10.697Z
+
+For Eita’s PR (#16):
+
+1. Get **PR #17 approved and merged**—that installs the screenshot-comment workflow on `main`.
+2. Re-run PR #16’s **Browser previews** action from its Actions page.
+3. When it finishes, **`github-actions[bot]` posts the before/after/diff images directly in PR #16’s conversation**, with a link to the full report.
+
+Future PR updates will trigger this automatically. No LLM or API key needed.
+
+--------------------
+
+User — 2026-11-17T02:25:56.713Z
+
+## My request:
+k i merged now what
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:25:59.606Z
+
+I’ll verify the merge and check how to trigger the screenshots on Eita’s PR.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:26:17.007Z
+
+PR #17 is merged. Eita’s PR predates the workflow, so there’s no screenshot run to re-run—my earlier instruction was off. I’ll briefly close and reopen PR #16 to trigger it without changing Eita’s code.
+
+--------------------
+
+Assistant — 2026-11-17T02:26:42.005Z
+
+I triggered it on Eita’s PR. **[Browser previews is running now](https://github.com/12-Last-But-Not-Least/open-archive/actions/runs/44002999510).**
+
+Once capture and publishing succeed, the bot should add the images to [PR #16’s conversation](https://github.com/12-Last-But-Not-Least/open-archive/pull/16). No further action needed right now.
+
+--------------------
+
+User — 2026-11-17T02:45:14.310Z
+
+lets fix bugs
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:45:19.003Z
+
+I’ll check the live preview run for failures, then fix the screenshot issues we found: repetitive selections, duplicate images, and full-page popup captures.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:45:51.037Z
+
+The live workflow succeeded and posted images on Eita’s PR. I’m fixing the presentation bugs now: prioritize card views, include at most one popup comparison, and collapse identical comparisons. Popup captures will use the same viewport size on both sides.
+
+--------------------
+
+User — 2026-11-17T02:46:19.384Z
+
+soptop
+
+--------------------
+
+User — 2026-11-17T02:46:22.557Z
+
+stopsopops
+
+--------------------
+
+Assistant — 2026-11-17T02:46:25.848Z
+
+Stopped. The edits are local only; nothing was committed or pushed.
+
+--------------------
+
+User — 2026-11-17T02:48:07.591Z
+
+i want to scope the website actually
+
+--------------------
+
+Assistant — 2026-11-17T02:48:11.559Z
+
+Got it—let’s scope the website itself. The preview fixes are paused.
+
+Are we defining what Open Archive should do for its first release, or reviewing the current site to decide what to improve?
+
+--------------------
+
+User — 2026-11-17T02:48:24.947Z
+
+yeah demo due thursday
+
+--------------------
+
+Assistant — 2026-11-17T02:48:31.595Z
+
+Then let’s scope for **Thursday, November 19**: one complete demo flow.
+
+Based on what’s already built, I’d center it on:
+
+1. **Discover a lab** — browse labs and open its page.
+2. **Join through an invitation** — open the link, sign in, choose your researcher identity, join.
+3. **Add publications** — search, select papers, and see them appear on your profile and lab page.
+
+Before Thursday, fix anything that blocks that flow, confusing instructions, and obvious layout problems. Defer new features and more screenshot automation.
+
+**Who’s watching the demo, and what do you need to convince them of?** That determines whether joining a lab or discovering research should be the main story.
+
+--------------------
+
+User — 2026-11-17T02:48:53.473Z
+
+idk i thought there was more can you hceck the slack
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:48:56.376Z
+
+I’ll check Slack for the demo plans and website requirements so we can scope against what the team actually discussed.
+
+--------------------
+
+Assistant — 2026-11-17T02:49:33.157Z
+
+Yes—there was more. **I missed the auto-generated lab website, which looks central to your pitch.**
+
+What I found in Slack:
+
+| Scope discussed | Evidence |
+|---|---|
+| **Auto-generated, automatically updated lab websites** | You explicitly proposed moving this into the MVP on Nov 12. [Message](https://cse210team12.slack.com/archives/C0C75USQ61L/p1794533078751089) |
+| **Researchers track and present publications, tied to their AT Protocol identity** | This was the team’s elevator-pitch discussion. [Discussion](https://cse210team12.slack.com/archives/C0CC4E68Y5R/p1794532454331309) |
+| **Create lab groups** | Allen called this out as another part of the product. [Message](https://cse210team12.slack.com/archives/C0CC4E68Y5R/p1794532682189929) |
+| **Help researchers find collaborators** | Himanth raised it as a question; I didn’t find a decision to include it in MVP. [Message](https://cse210team12.slack.com/archives/C0CC4E68Y5R/p1794532521341509) |
+
+Also, Thursday’s deliverable appears to be a **demo video**. The Nov 15 meeting recap mentions it, with Himanth confirming Thursday. The TA also suggested showing SWE design patterns/course concepts. [Recap](https://cse210team12.slack.com/archives/C0CC4E68Y5R/p1794780463438909)
+
+**The scope still wasn’t settled:** your latest message today asks the team to decide what belongs in MVP. [Message](https://cse210team12.slack.com/archives/C0CC4E68Y5R/p1794879558623989)
+
+My revised proposal for Thursday is:
+
+**Create a lab → invite a researcher → claim/add their publications → show the lab’s public website updating automatically.**
+
+That demonstrates the actual product promise. Next we should check how much of **“generate and update the lab website”** already works versus what’s missing, before choosing more features.
+
+--------------------
+
+User — 2026-11-17T02:50:50.296Z
+
+k how is the lab right now cuz i see arclab but idk where that came from
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:50:56.448Z
+
+I’ll trace where ARCLab comes from and how the current lab page gets its members and publications.
+
+--------------------
+
+Assistant — 2026-11-17T02:51:40.412Z
+
+**ARC Lab was preloaded in the code as a demo.** It wasn’t created through the website or automatically discovered.
+
+The original setup includes:
+
+- Advanced Robotics and Controls Lab at UCSD.
+- You as its initial member.
+- Michael Yip’s name variants for matching publications.
+- A `demo: true` flag—the page says it isn’t the lab’s official website.
+
+Right now, a lab page is a **basic generated profile**: name, institution, description, researchers, and publications. Papers appear there when they’re explicitly associated with that lab; simply joining a lab doesn’t automatically put every paper there.
+
+There’s also a separate **user-created lab system** with stored membership, owner/admin roles, and invitation links. The seeded ARC Lab follows a different membership path, so it doesn’t prove that whole creation flow works.
+
+For Thursday, we should test **creating a fresh lab through the UI** and getting a member and publication onto its generated page. That will show what the product actually supports beyond the preloaded example.
+
+--------------------
+
+User — 2026-11-17T02:54:28.889Z
+
+ok so we have a split there which is cause AI is doing AI stuff
+
+--------------------
+
+Assistant — 2026-11-17T02:54:36.628Z
+
+Yeah. The demo data became a separate implementation: seeded labs use one membership path, user-created labs use another. That’s an architectural inconsistency I should have flagged earlier.
+
+**We should have one lab model and one set of rules.** ARC Lab can remain sample data, but it should be created and managed through the same system as every other lab.
+
+For Thursday, that means checking creation, ownership, invitations, membership, and publication display through one normal lab flow—and removing the special-case behavior.
+
+--------------------
+
+User — 2026-11-17T02:55:06.657Z
+
+is there anyhting else thats hardcoded like that
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:55:10.157Z
+
+I’ll check for other demo data and special-case behavior, especially where seeded records behave differently from user-created ones.
+
+--------------------
+
+Assistant — 2026-11-17T02:55:35.343Z
+
+Yes. I checked the code and found several related leftovers:
+
+| Area | What’s hardcoded or split |
+|---|---|
+| **Your researcher profile** | Your name, bio, institution, Bluesky identity, and website are bundled in `data/site.json`. New researchers live in the database instead. |
+| **Deleting profiles** | Seeded profiles need a special “hide this record” entry so they don’t reappear from the JSON. Normal profiles are deleted from the database. |
+| **Publications** | Two papers are bundled in `data/papers.json`. Unlinked profiles use imported papers; linked profiles read publications from AT Protocol. |
+| **Page generation** | The static build generates profiles from the bundled JSON; the backend separately generates pages for live records. |
+| **Maintenance scripts** | Import/publish scripts recognize labs from the JSON file, so they don’t automatically recognize user-created labs. The account-linking script defaults to **you**. |
+| **Login placeholder** | It literally shows `bhackel.bsky.social`. Cosmetic, but another demo leftover. |
+
+There’s also a **product rule worth revisiting**: a paper can only be associated with a lab if the lab’s configured professor appears among its authors. That applies generally, but it’s a strong assumption about how labs work.
+
+**The main problem is two sources of truth: bundled JSON and live database records.** Sample data is fine; having different creation, deletion, membership, and tooling behavior depending on where a record originated is what we should clean up.
+
+--------------------
+
+User — 2026-11-17T02:58:02.008Z
+
+ok i really want to go from a demo to a real itneractive site. so if that means removing working stuff then so be it. can you make that do? username.bsky.social
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:58:05.917Z
+
+I’ll make the site use one live path for researchers and labs, remove the seeded demo records and special-case behavior, and change the login placeholder to `username.bsky.social`. I’ll first trace the storage and publishing flow so the cleanup preserves user-created data.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T02:58:52.644Z
+
+I found another important detail: the current lab feed already collects members’ publications, so my earlier statement about requiring explicit lab tags was too broad. I’ll keep that behavior and remove the older tag/professor restriction.
+
+I’m also adding a normal profile form, so someone can create a profile and join a lab even if they haven’t published a paper yet.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:00:51.168Z
+
+The demo records and name-claim path are removed in the working branch. Profiles and labs now come from the database, while publications still come from each researcher’s AT Protocol account. Existing database entries and publication records are untouched.
+
+I’m checking profile creation without papers, invitation-based membership, deletion/recreation, and restart persistence before opening the change for review.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:04:19.294Z
+
+The backend checks pass, including a fresh empty install, profile creation without papers, joining a new lab, and persistence after restart. The JavaScript checks pass too.
+
+The desktop browser checks are passing; mobile checks are running. One visible change after deployment: ARC Lab and any profile that existed only in the bundled demo data will disappear. They can be recreated through Account; existing AT Protocol papers will still be there.
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:05:24.832Z
+
+The profile form now passes on desktop and mobile, and all backend and JavaScript checks pass. I also fixed Refresh to reload lab membership before collecting papers.
+
+I’m opening a PR with the cleanup and deployment notes. The live site won’t change until that PR is merged.
+
+--------------------
+
+Assistant — 2026-11-17T03:06:16.437Z
+
+Implemented in [PR #18](https://github.com/12-Last-But-Not-Least/open-archive/pull/18):
+
+- Removed hardcoded demo profiles, labs, and papers.
+- Unified labs and researchers around live database records.
+- Added profile creation/editing without needing a paper.
+- Changed the placeholder to `username.bsky.social`.
+- Preserved existing user-created records and AT Protocol papers.
+
+Local checks pass; GitHub checks are running. **Not deployed yet—PR #18 needs approval and merge.**
+
+--------------------
+
+User — 2026-11-17T03:10:49.540Z
+
+shouldwwe be compressibng preview images after they get diffed and stuff so uits less evil
+
+--------------------
+
+Assistant — 2026-11-17T03:11:05.863Z
+
+Yes—**compare the original PNGs, then compress the images we publish.**
+
+I’d:
+
+- Resize PR-comment images to about **1,000 pixels wide**.
+- Encode before/after images as **WebP, quality ~80**.
+- Use **lossless WebP for the diff**, keeping the pink highlights sharp.
+- Keep full-resolution PNGs in the downloadable report.
+
+Also, compression won’t stop the image branch’s Git history growing forever. We should set a retention policy for those published images too.
+
+--------------------
+
+User — 2026-11-17T03:11:25.659Z
+
+also why did previews run after i merged nmain into eitas branch
+
+--------------------
+
+Assistant — 2026-11-17T03:11:30.314Z
+
+Because merging `main` into Eita’s branch **updates the PR’s code**. GitHub sends a `pull_request` “synchronize” event, which triggers our preview workflow.
+
+That’s intentional: changes from `main` can affect how Eita’s changes look or behave. The new run compares the updated PR against its base and refreshes the same bot comment.
+
+--------------------
+
+User — 2026-11-17T03:11:47.320Z
+
+did it send comment tho
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:11:49.673Z
+
+I’ll check Eita’s PR for the latest preview comment and publishing run.
+
+--------------------
+
+User — 2026-11-17T03:12:01.243Z
+
+is it supposerd tio
+
+--------------------
+
+Assistant — 2026-11-17T03:12:03.918Z
+
+Yes—and it did. It **updated the existing [preview comment](https://github.com/12-Last-But-Not-Least/open-archive/pull/16#issuecomment-6936127019)** for commit `b5da394`, rather than posting another comment. Both capture and publishing succeeded.
+
+--------------------
+
+User — 2026-11-17T03:12:14.574Z
+
+also can um ake the images defaulrt collapsed
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:12:16.701Z
+
+I’ll make the image comparisons start collapsed in the PR comment.
+
+--------------------
+
+User — 2026-11-17T03:12:23.060Z
+
+in liike a big collapse
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T03:12:28.819Z
+
+Got it—one collapsed “View screenshot comparisons” section around all the images.
