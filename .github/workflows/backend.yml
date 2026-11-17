@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   check:
+    name: Backend tests and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
