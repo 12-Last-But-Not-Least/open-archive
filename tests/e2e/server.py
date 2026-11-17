@@ -12,11 +12,10 @@ from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tests"))
 
 import uvicorn
 from fastapi import FastAPI
-from test_backend import FakeOAuth, PAPER
+from tests.support import FakeOAuth, PAPER
 
 backend = importlib.import_module("backend.app")
 ORIGIN = "http://127.0.0.1:8001"
