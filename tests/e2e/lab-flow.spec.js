@@ -67,6 +67,7 @@ test('two researchers create a lab, join, publish and update its public page', a
     await expect(dialog).toContainText(labName);
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     await member.getByRole('button', {name: 'Continue', exact: true}).click();
+    await expect(member.getByLabel('ATProto handle')).toBeFocused();
     await signIn(member, 'member.bsky.social');
     await profile(member, 'Lab Member');
     await member.getByRole('button', {name: 'Join lab', exact: true}).click();
