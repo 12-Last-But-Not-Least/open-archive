@@ -80,7 +80,11 @@ test('two researchers create a lab, join, publish and update its public page', a
     const profileURL = await member.locator('#profile a').getAttribute('href');
 
     const visitor = await newUser();
-    await visitor.goto(labURL);
+    await visitor.goto('/labs/');
+    const listedLab = visitor.getByRole('link', {name: labName, exact: true});
+    await expect(listedLab).toBeVisible();
+    await expect(visitor.locator('html')).toHaveJSProperty('scrollWidth', visitor.viewportSize().width);
+    await listedLab.click();
     await expect(visitor.locator('#lab-members')).toContainText('Lab Member');
     await expect(visitor.locator('#lab-members')).toContainText('Lab Owner');
     await expect(visitor.locator('#publication-list')).toContainText('Shared lab research');
