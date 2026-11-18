@@ -49,16 +49,10 @@ export function mergePublications(imported, live) {
   return [...papers.values()].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
 }
 
-export function unclaimedPublications(imported, researchers) {
-  const unclaimed = new Set(researchers.filter(researcher => !researcher.did).map(researcher => researcher.id));
-  return imported.map(paper => ({...paper, researcherIds: paper.researcherIds.filter(id => unclaimed.has(id))}))
-    .filter(paper => paper.researcherIds.length);
-}
-
 export function filterPublications(papers, page, id, memberIds) {
   if (page === "lab" && memberIds) return papers.filter(paper => paper.researcherIds.some(id => memberIds.includes(id)));
   if (page === "researcher") return papers.filter(paper => paper.researcherIds.includes(id));
-  if (page === "lab") return papers.filter(paper => paper.labIds.includes(id));
+  if (page === "lab") return [];
   return papers;
 }
 
@@ -221,11 +215,6 @@ async function start() {
   const button = document.querySelector("#refresh");
   const target = document.querySelector("#publication-list");
   try {
-    const [config, imported] = await Promise.all([getJSON(apiRoot ? apiRoot + "/data/site.json" : root + "data/site.json"), getJSON(root + "data/papers.json")]);
-    renderProfile(config, page, id, root, apiRoot);
-    const memberIds = page === "lab" ? (config.labs.find(lab => lab.id === id)?.members || []) : undefined;
-    const unclaimed = filterPublications(unclaimedPublications(imported, config.researchers), page, id, memberIds);
-    const researchers = config.researchers.filter(researcher => researcher.did && (page !== "researcher" || researcher.id === id) && (!memberIds || memberIds.includes(researcher.id)));
     let refreshing = false;
     async function refresh() {
       if (refreshing) return;
@@ -233,15 +222,22 @@ async function start() {
       button.disabled = true;
       status.textContent = "Loading…";
       try {
+        const config = await getJSON(apiRoot ? apiRoot + "/data/site.json" : root + "data/site.json");
+        renderProfile(config, page, id, root, apiRoot);
+        const memberIds = page === "lab" ? (config.labs.find(lab => lab.id === id)?.members || []) : undefined;
+        const researchers = config.researchers.filter(researcher => researcher.did && (page !== "researcher" || researcher.id === id) && (!memberIds || memberIds.includes(researcher.id)));
         const results = await Promise.allSettled(researchers.map(researcher => readPublications(researcher, config.collection)));
         const live = results.flatMap(result => result.status === "fulfilled" ? result.value : []);
         const failures = results.filter(result => result.status === "rejected").length;
-        const papers = mergePublications(unclaimed, filterPublications(live, page, id, memberIds));
+        const papers = mergePublications([], filterPublications(live, page, id, memberIds));
         renderPublications(papers, target);
-        if (!researchers.length) status.textContent = "Imported publications. No account linked.";
+        if (!researchers.length) status.textContent = "No publications added yet.";
         else if (failures) status.textContent = "Some accounts unavailable. Showing available publications.";
         else if (!live.length) status.textContent = "No ATProto publications added yet.";
         else status.textContent = "";
+      } catch {
+        target.replaceChildren();
+        status.textContent = "Publications unavailable. Try Refresh again.";
       } finally {
         button.disabled = false;
         refreshing = false;

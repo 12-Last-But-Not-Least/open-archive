@@ -3,6 +3,7 @@ let searchVersion = 0;
 let removingAll = false;
 let selectionName = "";
 let searchKind = "";  // "orcid" when results came from the researcher's ORCID iD
+let shownInvitationToken = sessionStorage.getItem("shown-lab-invite");
 const normalizeName = name => String(name || "").normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 const $ = selector => document.querySelector(selector);
 const status = message => { $("#status").textContent = message; };
@@ -227,6 +228,11 @@ async function load() {
   await renderInvitation();
   if (!session.user) return;
   await loadLabs();
+  $("#profile-name").value = session.researcher?.name || "";
+  $("#profile-institution").value = session.researcher?.institution || "";
+  $("#setup-guidance").textContent = session.researcher
+    ? "Next: create a lab or join with an invitation, then add your papers. Your public lab page collects its members’ publications."
+    : "Start by opening Create or edit your researcher profile below. Save your name before creating or joining a lab; no publication is required.";
   $("#identity").textContent = "@" + session.user.handle;
   $("#profile").replaceChildren();
   $("#remove-profile").hidden = !session.researcher;
@@ -346,7 +352,7 @@ $("#lab-create").addEventListener("submit", event => {
     });
     await loadLabs();
     $("#lab-create").reset();
-    status("Lab added.");
+    status("Lab added. Use Create invitation link under Your labs to invite members, or open the lab name to view its public page.");
   });
 });
 $("#import").addEventListener("submit", event => {
@@ -355,7 +361,6 @@ $("#import").addEventListener("submit", event => {
   run(event.submitter, async () => {
     const papers = [...document.querySelectorAll('input[name="paper"]:checked:not(:disabled)')].map(input => ({
       id: input.value,
-      labIds: [],
     }));
     if (!papers.length) { status("Select at least one paper."); return; }
     status("Adding papers…");
@@ -377,9 +382,34 @@ async function renderInvitation() {
   if (!token) return;
   try {
     const {lab} = await api("/api/lab-invites/" + encodeURIComponent(token));
-    target.append(node("h2", "Join " + lab.name));
+    if (shownInvitationToken !== token) {
+      $("#invitation-title").textContent =
+        "You've been invited to join " + lab.name;
+
+      $("#invitation-dialog").showModal();
+      shownInvitationToken = token;
+      sessionStorage.setItem("shown-lab-invite", token);
+    }
+    target.append(node("p", "Lab invitation"), node("h2", "You've been invited to join " + lab.name));
+
+    const currentStep = !session.user ? 0 : !session.researcher ? 1 : 2;
+    const steps = ["Sign in", "Create your profile", "Join lab"];
+    const progress = node("ol");
+    progress.className = "invitation-steps";
+    progress.setAttribute("aria-label", "Steps to join the lab");
+    steps.forEach((label, index) => {
+      const step = node("li");
+      if (index === currentStep) {
+        step.setAttribute("aria-current", "step");
+        step.append(node("strong", label));
+      } else {
+        step.textContent = label;
+      }
+      progress.append(step);
+    });
+    target.append(progress);
     if (!session.user) target.append(node("p", "Sign in to join this lab."));
-    else if (!session.researcher) target.append(node("p", "Search for your papers and choose your name below, then join the lab."));
+    else if (!session.researcher) target.append(node("p", "Create your researcher profile below or choose your author name from a paper, then join the lab."));
     else {
       const join = node("button", "Join lab");
       join.type = "button";
@@ -458,3 +488,14 @@ async function loadLabs() {
     target.append(section);
   }
 }
+
+$("#profile-edit").addEventListener("submit", event => {
+  event.preventDefault();
+  run(event.submitter, async () => {
+    await api("/api/profile", "PUT", {
+      name: $("#profile-name").value.trim(), institution: $("#profile-institution").value.trim(),
+    });
+    await load();
+    status("Profile saved.");
+  });
+});

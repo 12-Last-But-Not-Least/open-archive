@@ -31,6 +31,18 @@ textarea { font: inherit; width: min(100%, 36rem); box-sizing: border-box; min-h
 #my-labs input[readonly] { width: 100%; box-sizing: border-box; }
 #my-labs button { margin: 3px; }
 
-.account-help { margin: 20px 0; padding: 12px 16px; border: 1px solid #000; }
-.account-help summary { cursor: pointer; font-weight: bold; }
-.account-help li { margin: 8px 0; }
+.sign-in-help { margin-top: 12px; font-size: 14px; }
+.sign-in-help summary { cursor: pointer; text-decoration: underline; }
+
+#invitation-dialog {width: min(28rem, 90vw); box-sizing: border-box; padding: 1.5rem; border: 1px solid #333;}
+#invitation-dialog::backdrop {background: rgba(0, 0, 0, 0.45);}
+#invitation-dialog h2 {margin-top: 0;}
+#invitation-dialog form {display: flex; justify-content: flex-end;}
+
+#lab-invitation {margin: 1rem 0; padding: 1.25rem; border: 1px solid #2563eb; border-left: 4px solid #2563eb; background: #eff6ff;}
+#lab-invitation > p:first-child {margin: 0 0 0.5rem; color: #1e40af; font-weight: bold;}
+#lab-invitation h2 {margin: 0 0 1rem; overflow-wrap: anywhere;}
+
+.invitation-steps {display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; padding-left: 1.5rem; margin: 1rem 0;}
+.invitation-steps li {padding-right: 0.5rem;}
+.invitation-steps [aria-current="step"] {color: #1e40af;}

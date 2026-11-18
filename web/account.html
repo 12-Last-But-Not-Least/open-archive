@@ -11,25 +11,26 @@
   <header><nav aria-label="Main"><a href="/">Open Archive</a> | <a href="/researchers/">Researchers</a> | <a href="/labs/">Labs</a> | <a href="/publications/">Publications</a> | <a href="/account/" aria-current="page">Account</a></nav></header>
   <main>
     <h1>Account</h1>
-    <details class="account-help">
-      <summary>Make an Account</summary>
-      <ol>
-        <li>Create an account at <a href="https://bsky.app/" target="_blank" rel="noopener noreferrer">Bluesky</a>, or use the one you already have.</li>
-        <li>Open <a href="/account/">Account</a>, enter your Bluesky handle (for example, <code>yourname.bsky.social</code>), and click <strong>Sign in</strong>. Complete sign-in on Bluesky.</li>
-        <li>Under <strong>Add papers</strong>, search your full name and choose your name from the authors shown. This creates your public researcher profile.</li>
-        <li>Check the papers that are yours, then click <strong>Add selected papers</strong>.</li>
-        <li>Optional: add your <a href="https://orcid.org/" target="_blank" rel="noopener noreferrer">ORCID iD</a> so your papers can be found exactly, even if someone shares your name.</li>
-      </ol>
-      <p>Joining a lab? Open its invitation link, sign in, choose your author name, and click <strong>Join lab</strong>.</p>
-    </details>
 
     <p id="status" role="status">Loading…</p>
+    <section id="lab-invitation" hidden></section>
     <form id="login" hidden>
       <label for="handle">ATProto handle</label>
-      <input id="handle" name="handle" placeholder="bhackel.bsky.social" autocomplete="username" required>
+      <input id="handle" name="handle" placeholder="username.bsky.social" autocomplete="username" required>
       <button type="submit">Sign in</button>
+      <details class="sign-in-help">
+        <summary>Need help signing in?</summary>
+        <p>Use your Bluesky handle, such as <code>username.bsky.social</code>. You will finish signing in on Bluesky.</p>
+        <p>No account yet? <a href="https://bsky.app/" target="_blank" rel="noopener noreferrer">Create one on Bluesky</a>, then return here.</p>
+        <p>Joining a lab? Start from its invitation link. After signing in, save your researcher profile and choose <strong>Join lab</strong>.</p>
+      </details>
     </form>
-    <section id="lab-invitation" hidden></section>
+    <dialog id="invitation-dialog" aria-labelledby="invitation-title">
+      <h2 id="invitation-title"></h2>
+      <form method="dialog">
+        <button type="submit">Continue</button>
+      </form>
+    </dialog>
     <div id="account" hidden>
       <p id="identity"></p>
       <p id="profile"></p>
@@ -40,11 +41,21 @@
         <button id="orcid-search" type="button" hidden>Find papers by ORCID iD</button>
         <p class="note">Shown publicly on your profile as self-provided. Open Archive doesn't verify that you own this ORCID iD.</p>
       </form>
+      <p id="setup-guidance"></p>
       <button id="remove-profile" type="button" hidden>Remove researcher profile</button>
       <button id="logout" type="button">Sign out</button>
+      <details>
+        <summary>Create or edit your researcher profile</summary>
+        <form id="profile-edit">
+          <p><label for="profile-name">Your name</label> <input id="profile-name" required minlength="2" maxlength="120"></p>
+          <p><label for="profile-institution">Institution</label> <input id="profile-institution" maxlength="200"></p>
+          <button type="submit">Save profile</button>
+        </form>
+      </details>
       <section><h2>Your labs</h2><div id="my-labs"></div></section>
       <details>
         <summary>Add a lab</summary>
+        <p>Create your researcher profile first so you appear as a member of your lab.</p>
         <form id="lab-create">
           <p><label for="lab-name">Lab name</label> <input id="lab-name" required maxlength="200"></p>
           <p><label for="lab-institution">Institution</label> <input id="lab-institution" required maxlength="200"></p>

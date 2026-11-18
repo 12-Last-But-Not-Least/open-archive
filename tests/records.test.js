@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {safeURL, normalizeRecord, mergePublications, filterPublications, readPublications, unclaimedPublications} from "../web/app.js";
+import {safeURL, normalizeRecord, mergePublications, filterPublications, readPublications} from "../web/app.js";
 
 const researcher = {id: "bryce-hackel", did: "did:plc:rqu4asr46qcalfx5b2mxqzvx"};
 const collection = "io.github.12-last-but-not-least.publication";
@@ -25,7 +25,7 @@ test("coauthors and versioned arXiv records merge into one publication", () => {
   assert.equal(merged[0].source, "atproto");
 });
 
-test("Skill Tests stays on the researcher profile and off the ARC lab page", () => {
+test("a lab without a membership list cannot expose publications by old tags", () => {
   const paper = normalizeRecord(record({title: "Skill Tests", arxivId: undefined, doi: "10.1145/3770762.3772518", labIds: []}), researcher, collection, pds);
   assert.equal(filterPublications([paper], "lab", "ucsd-arc").length, 0);
   assert.equal(filterPublications([paper], "researcher", "bryce-hackel").length, 1);
@@ -54,19 +54,6 @@ test("the reader follows pagination and resolves the current PDS from a DID", as
 
 test("a PDS outage rejects cleanly", async () => {
   await assert.rejects(readPublications(researcher, collection, async () => {throw new Error("offline");}), /offline/);
-});
-
-test("imported suggestions never reappear on a claimed profile, including an empty PDS", () => {
-  const imported = normalizeRecord(record(), researcher, collection, pds);
-  assert.deepEqual(unclaimedPublications([imported], [researcher]), []);
-  assert.deepEqual(mergePublications(unclaimedPublications([imported], [researcher]), []), []);
-});
-
-test("a shared import remains only on the unclaimed coauthor's profile", () => {
-  const imported = {...normalizeRecord(record(), researcher, collection, pds), researcherIds: [researcher.id, "jay"]};
-  const papers = unclaimedPublications([imported], [researcher, {id: "jay", did: ""}]);
-  assert.deepEqual(papers[0].researcherIds, ["jay"]);
-  assert.equal(filterPublications(papers, "researcher", researcher.id).length, 0);
 });
 
 test("the reader rejects a mismatched DID document", async () => {

@@ -1,4 +1,4 @@
-"""FastAPI app: login, profile claims, paper suggestions, and PDS writes."""
+"""FastAPI app: login, live profiles, paper suggestions, and PDS writes."""
 
 import asyncio
 import hashlib
@@ -41,10 +41,6 @@ class Login(Input):
     handle: str = Field(min_length=3, max_length=253, pattern=r"^@?[a-zA-Z0-9.:-]+$")
 
 
-class Claim(Input):
-    researcherId: str = Field(min_length=1, max_length=100)
-
-
 class Search(Input):
     author: str = Field(min_length=2, max_length=120, pattern=r"^[\w .,'’\-]+$")
 
@@ -60,7 +56,6 @@ class DoiLookup(Input):
 class ResearcherProfile(Input):
     name: str = Field(min_length=2, max_length=120)
     institution: str = Field(default="", max_length=200)
-    labIds: list[str] = Field(default_factory=list, max_length=20)
 
 
 class OrcidChoice(Input):
@@ -75,7 +70,6 @@ class AuthorChoice(Input):
 class LabProfile(Input):
     name: str = Field(min_length=2, max_length=200)
     institution: str = Field(min_length=2, max_length=200)
-    professorName: str = Field(default="", max_length=120)
     about: str = Field(default="", max_length=2000)
     contactEmail: str = Field(default="", max_length=254, pattern=r"^(?:[^\s@]+@[^\s@]+\.[^\s@]+)?$")
 
@@ -91,14 +85,13 @@ class LabMemberChange(Input):
 
 class Selection(Input):
     id: str = Field(max_length=500)
-    labIds: list[str] = Field(default_factory=list, max_length=20)
 
 
 class Import(Input):
     papers: list[Selection] = Field(min_length=1, max_length=20)
 
 
-def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_factory=make_client, searcher=None):
+def create_app(*, directory=None, origin=None, oauth_factory=make_client, searcher=None):
     origin = (origin or os.environ.get("OPEN_ARCHIVE_ORIGIN") or (
         "https://" + os.environ["RAILWAY_PUBLIC_DOMAIN"] if os.environ.get("RAILWAY_PUBLIC_DOMAIN")
         else "http://127.0.0.1:8000")).rstrip("/")
@@ -120,8 +113,6 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     database = Database(state_dir or ROOT / ".local")
     if secure:
         client_metadata(database, origin)  # Create the signing key once at startup.
-    config = config or json.loads((ROOT / "data/site.json").read_text())
-    catalog = catalog if catalog is not None else json.loads((ROOT / "data/papers.json").read_text())
     searcher = searcher or ArxivSearch()
     # One worker; serialize each browser's token refreshes and writes.
     locks = [asyncio.Lock() for _ in range(64)]
@@ -163,34 +154,14 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         return key, data
 
     def public_config():
-        result = json.loads(json.dumps(config))
-        removed = database.removed_researchers()
-        result["researchers"] = [r for r in result["researchers"] if r["id"] not in removed]
-        links = {claim["researcher_id"]: claim for claim in database.claims() if claim["status"] == "approved"}
-        for researcher in result["researchers"]:
-            if researcher["id"] in links:
-                link = links[researcher["id"]]
-                researcher.update(did=link["did"], handle=link["handle"])
-        for kind in ("researchers", "labs"):
-            entries = {entry["id"]: entry for entry in result[kind]}
-            entries.update({entry["id"]: entry for entry in database.directory_entries(kind)})
-            result[kind] = [entry for entry in entries.values() if not (kind == "researchers" and entry.get("autoCreated"))]
+        researchers = [r for r in database.directory_entries("researchers") if not r.get("autoCreated")]
+        labs = database.directory_entries("labs")
         memberships = database.lab_members()
-        managed = {entry["id"] for entry in database.directory_entries("labs")}
-        for lab in result["labs"]:
-            if lab["id"] in managed:
-                dids = {m["did"] for m in memberships if m["lab_id"] == lab["id"]}
-                lab["members"] = sorted(r["id"] for r in result["researchers"] if r.get("did") in dids)
-                lab["managed"] = True
-                continue
-            members = set(lab.get("members", []))
-            for researcher in result["researchers"]:
-                if "labIds" in researcher:
-                    members.discard(researcher["id"])
-                    if lab["id"] in researcher["labIds"]:
-                        members.add(researcher["id"])
-            lab["members"] = sorted(members & {r["id"] for r in result["researchers"]})
-        return result
+        for lab in labs:
+            dids = {m["did"] for m in memberships if m["lab_id"] == lab["id"]}
+            lab["members"] = sorted(r["id"] for r in researchers if r.get("did") in dids)
+            lab["managed"] = True
+        return {"name": "Open Archive", "collection": COLLECTION, "researchers": researchers, "labs": labs}
 
     def researcher_for(did):
         return next((r for r in public_config()["researchers"] if r.get("did") == did), None)
@@ -266,10 +237,8 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             key, data = new_browser(response)
         did = data.get("did")
         researcher = researcher_for(did) if did else None
-        claim = next((c for c in database.claims() if c["did"] == did), None)
         response.body = json.dumps({"csrf": data["csrf"], "user": {"did": did, "handle": data.get("handle")} if did else None,
-                                    "researcher": researcher, "claim": claim,
-                                    "researchers": [{"id": r["id"], "name": r["name"]} for r in public_config()["researchers"] if not r.get("did")],
+                                    "researcher": researcher,
                                     "labs": public_config()["labs"]}).encode()
         response.headers["content-length"] = str(len(response.body))
         return response
@@ -344,16 +313,8 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         if not name:
             raise HTTPException(400, "Choose an author from the search results.")
         current = researcher_for(session.did)
-        if not current:
-            matches = [r for r in public_config()["researchers"] if normalized_name(r["name"]) == normalized_name(name)]
-            if len(matches) == 1 and not matches[0].get("did"):
-                try:
-                    database.claim_by_name(session.did, session.handle, matches[0]["id"])
-                except ValueError as error:
-                    raise HTTPException(409, str(error)) from None
-                current = researcher_for(session.did)
         identifier = current["id"] if current else "researcher-" + hashlib.sha256(session.did.encode()).hexdigest()[:16]
-        profile = {"institution": "", "labIds": [], **(current or {}), "id": identifier,
+        profile = {"institution": "", **(current or {}), "id": identifier,
                    "name": name.strip(), "did": session.did, "handle": session.handle, "autoCreated": False}
         database.save_directory_entry("researchers", identifier, session.did, profile)
         return {"researcher": profile}
@@ -361,9 +322,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     @app.delete("/api/profile")
     async def remove_profile(request: Request):
         key, _, _, session = await authenticated(request)
-        current = researcher_for(session.did)
-        seeded_id = current["id"] if current and any(r["id"] == current["id"] for r in config["researchers"]) else None
-        database.remove_researcher(session.did, seeded_id)
+        database.remove_researcher(session.did)
         database.delete("suggestions:" + key)
         return {"ok": True}
 
@@ -372,9 +331,6 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         _, _, _, session = await authenticated(request)
         if not payload.name.strip():
             raise HTTPException(400, "Enter your name.")
-        known = {lab["id"] for lab in public_config()["labs"]}
-        if set(payload.labIds) - known:
-            raise HTTPException(400, "Unknown lab.")
         current = researcher_for(session.did)
         identifier = current["id"] if current else "researcher-" + hashlib.sha256(session.did.encode()).hexdigest()[:16]
         profile = {**(current or {}), **payload.model_dump(), "id": identifier,
@@ -405,6 +361,8 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     @app.post("/api/labs")
     async def create_lab(payload: LabProfile, request: Request):
         _, _, _, session = await authenticated(request)
+        if not researcher_for(session.did):
+            raise HTTPException(400, "Create your researcher profile before creating a lab.")
         if not all(value.strip() for value in (payload.name, payload.institution)):
             raise HTTPException(400, "Enter the lab name and institution.")
         labs = public_config()["labs"]
@@ -413,7 +371,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             raise HTTPException(409, "This lab is already listed.")
         identifier = "lab-" + hashlib.sha256((normalized_name(payload.name) + "|" + normalized_name(payload.institution)).encode()).hexdigest()[:16]
         lab = {"id": identifier, "name": payload.name.strip(), "shortName": payload.name.strip(),
-               "institution": payload.institution.strip(), "professorNames": [payload.professorName.strip()],
+               "institution": payload.institution.strip(),
                "members": [], "about": payload.about.strip(), "contactEmail": payload.contactEmail.strip()}
         try:
             database.create_lab(identifier, session.did, lab)
@@ -460,7 +418,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     async def join_lab(identifier: str, payload: LabJoin, request: Request):
         _, _, _, session = await authenticated(request)
         if not researcher_for(session.did):
-            raise HTTPException(400, "Choose your author name before joining the lab.")
+            raise HTTPException(400, "Create your researcher profile before joining the lab.")
         try:
             database.manage_lab(identifier, session.did, "join", token=payload.token)
         except ValueError as error:
@@ -476,44 +434,10 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
             raise HTTPException(403, str(error)) from None
         return {"ok": True}
 
-    @app.post("/api/claims")
-    async def claim_profile(payload: Claim, request: Request):
-        _, _, _, session = await authenticated(request)
-        current = researcher_for(session.did)
-        if current and not current.get("autoCreated"):
-            raise HTTPException(409, "Your account is already linked to a profile.")
-        researcher = next((r for r in public_config()["researchers"] if r["id"] == payload.researcherId), None)
-        if researcher is None or researcher.get("did"):
-            raise HTTPException(409, "This profile is unavailable to claim.")
-        # Read the signed-in DID's public profile, never a browser-supplied name.
-        try:
-            profile = await get_json(session.pds_url.rstrip("/") + "/xrpc/com.atproto.repo.getRecord",
-                                     params={"repo": session.did, "collection": "app.bsky.actor.profile", "rkey": "self"})
-        except Exception:
-            raise HTTPException(502, "Could not read your Bluesky profile. Make sure it has a display name and try again.") from None
-        if profile.get("uri") != f"at://{session.did}/app.bsky.actor.profile/self":
-            raise HTTPException(502, "The account provider returned a different profile. Try again later.")
-        name = normalized_name(profile.get("value", {}).get("displayName"))
-        if not name or name != normalized_name(researcher["name"]):
-            raise HTTPException(403, "Your Bluesky display name must match this researcher's full name.")
-        matches = [r for r in public_config()["researchers"] if normalized_name(r["name"]) == name and r.get("did") != session.did]
-        if len(matches) != 1:
-            raise HTTPException(409, "More than one researcher has this name. This profile cannot be claimed by name alone.")
-        try:
-            database.claim_by_name(session.did, session.handle, researcher["id"])
-        except ValueError as error:
-            raise HTTPException(409, str(error)) from None
-        return {"status": "approved", "message": "Profile claimed. You can now manage your publications."}
-
     @app.get("/api/suggestions")
     async def suggestions(request: Request):
-        key, _, _, session = await authenticated(request)
-        researcher = researcher_for(session.did)
-        claim = next((c for c in database.claims() if c["did"] == session.did), None)
-        researcher_id = researcher["id"] if researcher else claim["researcher_id"] if claim else None
-        papers = [p for p in catalog if researcher_id in p.get("researcherIds", [])]
-        remember_suggestions(key, papers)
-        return {"papers": [{**p, "id": paper_key(p)} for p in papers]}
+        key, _, _, _ = await authenticated(request)
+        return {"papers": list((database.get("suggestions:" + key) or {}).values())}
 
     @app.post("/api/arxiv/search")
     async def search(payload: Search, request: Request):
@@ -596,19 +520,10 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
     async def publish(payload: Import, request: Request):
         key, _, client, session = await authenticated(request)
         if not researcher_for(session.did):
-            raise HTTPException(400, "Choose your author name from the search results first.")
+            raise HTTPException(400, "Create your researcher profile or choose your author name first.")
         saved = database.get("suggestions:" + key) or {}
-        labs = public_config()["labs"]
-        known_labs = {lab["id"] for lab in labs}
-        for selected in payload.papers:
-            if selected.id not in saved:
-                raise HTTPException(400, "A suggestion expired. Reload suggestions or search again.")
-            if set(selected.labIds) - known_labs:
-                raise HTTPException(400, "Unknown lab.")
-            authors = {normalized_name(name) for name in saved[selected.id].get("authors", [])}
-            eligible = {lab["id"] for lab in labs if authors & {normalized_name(name) for name in lab.get("professorNames", [])}}
-            if set(selected.labIds) - eligible:
-                raise HTTPException(400, "A lab can only be associated when its professor is a listed author.")
+        if any(selected.id not in saved for selected in payload.papers):
+            raise HTTPException(400, "Search again before adding these papers.")
         results = []
         async with lock_for(key):
             session = await client.session_store.get_session(session.did)
@@ -624,7 +539,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
                 try:
                     result = await xrpc(client, session, "POST", "createRecord", json={
                         "repo": session.did, "collection": COLLECTION, "rkey": record_key(paper),
-                        "record": make_record(paper, list(dict.fromkeys(selected.labIds))),
+                        "record": make_record(paper, []),
                     })
                     existing.update(paper_keys(paper))
                     results.append({"id": selected.id, "status": "added", "uri": result["uri"]})
@@ -721,7 +636,7 @@ def create_app(*, directory=None, origin=None, config=None, catalog=None, oauth_
         members = [r for r in directory["researchers"] if r["id"] in lab["members"]]
         return render_public("lab.html", {"ID": escape(identifier), "NAME": escape(lab["name"]),
             "SHORT_NAME": escape(lab.get("shortName", lab["name"])), "INSTITUTION": escape(lab.get("institution", "")),
-            "DEMO_NOTE": '<p class="note">Demo page. Not the lab’s official website.</p>' if lab.get("demo") else "", "MEMBER_COUNT": len(members), "MEMBERS": directory_html(members, "researchers"), "PUBLICATIONS": ""})
+            "MEMBER_COUNT": len(members), "MEMBERS": directory_html(members, "researchers"), "PUBLICATIONS": ""})
 
     @app.get("/account/")
     async def account_page():
