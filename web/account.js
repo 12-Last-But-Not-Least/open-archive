@@ -344,6 +344,18 @@ $("#import").addEventListener("submit", event => {
 });
 load().then(() => { $("#find-papers").disabled = false; }).catch(error => status(error.message));
 
+$("#invitation-dialog").addEventListener("close", () => {
+  if (!session.user) {
+    $("#handle").focus();
+  } else if (!session.researcher) {
+    const profileForm = $("#profile-edit");
+    const details = profileForm.closest("details");
+    (details.open ? $("#profile-name") : details.querySelector("summary")).focus();
+  } else {
+    $("#lab-invitation .join-lab")?.focus();
+  }
+});
+
 async function renderInvitation() {
   const queryToken = new URLSearchParams(location.search).get("invite");
   if (queryToken) sessionStorage.setItem("lab-invite", queryToken);
@@ -384,6 +396,7 @@ async function renderInvitation() {
     else if (!session.researcher) target.append(node("p", "Create your researcher profile below or choose your author name from a paper, then join the lab."));
     else {
       const join = node("button", "Join lab");
+      join.className = "join-lab";
       join.type = "button";
       join.addEventListener("click", () => run(join, async () => {
         await api("/api/labs/" + lab.id + "/join", "POST", {token});
