@@ -29,6 +29,23 @@ def normalize_doi(value):
     return value.lower()
 
 
+def normalize_orcid(value):
+    """Return an ORCID iD as 0000-0000-0000-000X, accepting bare iDs and orcid.org links."""
+    match = re.fullmatch(r"(?:https?://)?(?:www\.)?(?:orcid\.org/)?(\d{4})-?(\d{4})-?(\d{4})-?(\d{3}[\dXx])/?",
+                         value.strip()) if isinstance(value, str) else None
+    if not match:
+        raise ValueError("Enter an ORCID iD like 0000-0002-1825-0097.")
+    digits = "".join(match.groups()).upper()
+    # The last character is an ISO 7064 MOD 11-2 check digit, so typos are caught here.
+    total = 0
+    for digit in digits[:-1]:
+        total = (total + int(digit)) * 2
+    check = (12 - total % 11) % 11
+    if digits[-1] != ("X" if check == 10 else str(check)):
+        raise ValueError("That ORCID iD isn't valid. Check it for a typo.")
+    return "-".join(digits[i:i + 4] for i in range(0, 16, 4))
+
+
 def parse_crossref(data, doi):
     if normalize_doi(data.get("DOI", "")) != doi:
         raise ValueError("The metadata returned a different DOI.")
@@ -112,11 +129,34 @@ def parse_openalex(item):
                           "openalex", item.get("doi") or "", (location.get("source") or {}).get("display_name", ""))
 
 
-async def search_openalex(query, field):
+def openalex_headers():
     headers = {"User-Agent": "open-archive/0.2 (+https://github.com/12-Last-But-Not-Least/open-archive)"}
     if os.environ.get("OPENALEX_API_KEY"):
         headers["Authorization"] = "Bearer " + os.environ["OPENALEX_API_KEY"]
-    async with httpx.AsyncClient(timeout=15, follow_redirects=False, headers=headers) as client:
+    return headers
+
+
+def parse_openalex_results(items):
+    papers = []
+    for item in items:
+        try:
+            papers.append(parse_openalex(item))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            continue
+    return papers
+
+
+async def search_orcid(orcid):
+    """Papers whose OpenAlex authorship is linked to this exact ORCID iD, newest first."""
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False, headers=openalex_headers()) as client:
+        response = await client.get("https://api.openalex.org/works", params={
+            "per-page": 50, "filter": "author.orcid:" + normalize_orcid(orcid), "sort": "publication_date:desc"})
+        response.raise_for_status()
+        return parse_openalex_results(response.json()["results"])
+
+
+async def search_openalex(query, field):
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False, headers=openalex_headers()) as client:
         params = {"per-page": 20, "search": query}
         if field == "author":
             response = await client.get("https://api.openalex.org/authors", params={"search": query, "per-page": 10})
@@ -130,13 +170,7 @@ async def search_openalex(query, field):
             params = {"per-page": 20, "filter": "authorships.author.id:" + "|".join(ids)}
         response = await client.get("https://api.openalex.org/works", params=params)
         response.raise_for_status()
-        papers = []
-        for item in response.json()["results"]:
-            try:
-                papers.append(parse_openalex(item))
-            except (ValueError, TypeError, KeyError, AttributeError):
-                continue
-        return papers
+        return parse_openalex_results(response.json()["results"])
 
 
 def parse_datacite(item):
