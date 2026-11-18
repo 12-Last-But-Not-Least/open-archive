@@ -18,6 +18,7 @@
         <li>Open <a href="/account/">Account</a>, enter your Bluesky handle (for example, <code>yourname.bsky.social</code>), and click <strong>Sign in</strong>. Complete sign-in on Bluesky.</li>
         <li>Under <strong>Add papers</strong>, search your full name and choose your name from the authors shown. This creates your public researcher profile.</li>
         <li>Check the papers that are yours, then click <strong>Add selected papers</strong>.</li>
+        <li>Optional: add your <a href="https://orcid.org/" target="_blank" rel="noopener noreferrer">ORCID iD</a> so your papers can be found exactly, even if someone shares your name.</li>
       </ol>
       <p>Joining a lab? Open its invitation link, sign in, choose your author name, and click <strong>Join lab</strong>.</p>
     </details>
@@ -32,6 +33,13 @@
     <div id="account" hidden>
       <p id="identity"></p>
       <p id="profile"></p>
+      <form id="orcid-form" hidden>
+        <label for="orcid">ORCID iD (optional)</label>
+        <input id="orcid" placeholder="0000-0002-1825-0097" maxlength="100" autocomplete="off">
+        <button type="submit">Save ORCID iD</button>
+        <button id="orcid-search" type="button" hidden>Find papers by ORCID iD</button>
+        <p class="note">Shown publicly on your profile as self-provided. Open Archive doesn't verify that you own this ORCID iD.</p>
+      </form>
       <button id="remove-profile" type="button" hidden>Remove researcher profile</button>
       <button id="logout" type="button">Sign out</button>
       <section><h2>Your labs</h2><div id="my-labs"></div></section>

@@ -165,6 +165,13 @@ function renderProfile(config, page, id, root, apiRoot) {
     document.querySelector("#researcher-account").replaceChildren(entry.did ?
       link("@" + entry.handle, "https://bsky.app/profile/" + encodeURIComponent(entry.did)) :
       element("span", "No ATProto account linked yet."));
+    const orcid = document.querySelector("#researcher-orcid");
+    if (orcid) {
+      orcid.replaceChildren();
+      if (/^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(entry.orcid || "")) {
+        orcid.append("ORCID iD: ", link(entry.orcid, "https://orcid.org/" + entry.orcid), " (self-provided, not verified)");
+      }
+    }
   } else {
     document.querySelector("#lab-about").textContent = entry.about || "";
     const contact = document.querySelector("#lab-contact");

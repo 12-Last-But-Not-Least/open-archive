@@ -134,10 +134,11 @@ def main():
     for researcher in config["researchers"]:
         affiliations = [lab for lab in config["labs"] if researcher["id"] in lab["members"]]
         account = ('<a href="https://bsky.app/profile/' + text(researcher["did"]) + '">@' + text(researcher["handle"]) + '</a>') if researcher.get("did") else "No ATProto account linked yet."
+        orcid = ('ORCID iD: <a href="https://orcid.org/' + text(researcher["orcid"]) + '">' + text(researcher["orcid"]) + '</a> (self-provided, not verified)') if researcher.get("orcid") else ""
         render("researcher.html", output / "researchers" / researcher["id"] / "index.html", {
             "ROOT": "../../", "ID": text(researcher["id"]), "NAME": text(researcher["name"]),
             "INSTITUTION": text(researcher["institution"]), "ABOUT": text(researcher["about"]),
-            "WEBSITE": text(valid_url(researcher["website"])), "ACCOUNT": account,
+            "WEBSITE": text(valid_url(researcher["website"])), "ACCOUNT": account, "ORCID": orcid,
             "AFFILIATIONS": " · ".join('<a href="../../labs/' + text(lab["id"]) + '/">' + text(lab["shortName"]) + '</a>' for lab in affiliations),
             "PUBLICATIONS": publications([paper for paper in papers if researcher["id"] in paper["researcherIds"]]),
         })
