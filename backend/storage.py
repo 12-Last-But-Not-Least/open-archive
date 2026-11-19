@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import time
+import unicodedata
 from dataclasses import fields
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,21 @@ from pathlib import Path
 from atproto_oauth.models import OAuthSession, OAuthState
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
+
+
+def normalized_name(value):
+    return " ".join(unicodedata.normalize("NFC", value).casefold().split()) if isinstance(value, str) else ""
+
+
+def lab_name_taken(db, name, institution, exclude=None):
+    for row in db.execute("SELECT id, value FROM directory_entries WHERE kind='labs'"):
+        if row["id"] == exclude:
+            continue
+        lab = json.loads(row["value"])
+        if (normalized_name(lab.get("name")) == normalized_name(name)
+                and normalized_name(lab.get("institution")) == normalized_name(institution)):
+            return True
+    return False
 
 
 class Database:
@@ -104,10 +120,30 @@ class Database:
     def create_lab(self, identifier, owner, value):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            if db.execute("SELECT 1 FROM directory_entries WHERE kind='labs' AND id=?", (identifier,)).fetchone():
+            if (db.execute("SELECT 1 FROM directory_entries WHERE kind='labs' AND id=?", (identifier,)).fetchone()
+                    or lab_name_taken(db, value.get("name"), value.get("institution"))):
                 raise ValueError("This lab is already listed.")
             db.execute("INSERT INTO directory_entries VALUES ('labs', ?, ?, ?)", (identifier, owner, json.dumps(value)))
             db.execute("INSERT INTO lab_members VALUES (?, ?, 'owner')", (identifier, owner))
+
+    def edit_lab(self, lab_id, actor, details):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT value FROM directory_entries WHERE kind='labs' AND id=?", (lab_id,)).fetchone()
+            if not row:
+                raise LookupError("Lab not found.")
+            role = db.execute("SELECT role FROM lab_members WHERE lab_id=? AND did=?", (lab_id, actor)).fetchone()
+            if not role or role["role"] not in ("owner", "admin"):
+                raise PermissionError("Only lab owners and admins can edit lab details.")
+            if lab_name_taken(db, details["name"], details["institution"], exclude=lab_id):
+                raise ValueError("This lab is already listed.")
+            lab = json.loads(row["value"])
+            for key in ("name", "institution", "about", "contactEmail"):
+                lab[key] = details[key]
+            lab["shortName"] = details["name"]
+            db.execute("UPDATE directory_entries SET value=? WHERE kind='labs' AND id=?",
+                       (json.dumps(lab), lab_id))
+            return lab
 
     def manage_lab(self, lab_id, actor, action, target=None, token=None):
         with self.connect() as db:
