@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import COOKIE, create_app, normalized_name
 from backend.oauth import ArchiveOAuthClient, refresh_did
-from backend.papers import COLLECTION, parse_arxiv, normalize_doi, parse_crossref
+from backend.papers import COLLECTION, parse_arxiv, normalize_doi, normalize_orcid, parse_crossref
 from backend.storage import Database
 from tests.support import DID, OTHER, ORIGIN, PAPER, FakeOAuth, FakeSearch
 
@@ -567,6 +567,93 @@ def test_lab_invitation_membership_and_permissions(setup):
     restarted = Database(app.state.database.path.parent)
     assert restarted.lab_members(lab["id"]) == [{"lab_id": lab["id"], "did": DID, "role": "owner"}]
 
+
+@pytest.mark.parametrize("value,expected", [
+    ("0000-0002-1825-0097", "0000-0002-1825-0097"),
+    ("https://orcid.org/0000-0002-1825-0097", "0000-0002-1825-0097"),
+    ("orcid.org/0000000218250097/", "0000-0002-1825-0097"),
+    (" 0000-0002-1694-233x ", "0000-0002-1694-233X"),
+])
+def test_orcid_inputs(value, expected):
+    assert normalize_orcid(value) == expected
+
+
+@pytest.mark.parametrize("value", ["", "1234", "0000-0002-1825-0098", "0000-0002-1825-009",
+                                   "https://example.com/0000-0002-1825-0097", "0000-0002-1825-00970", None])
+def test_orcid_rejects_invalid_inputs(value):
+    with pytest.raises(ValueError):
+        normalize_orcid(value)
+
+
+def test_orcid_is_saved_shown_removed_and_unique(setup):
+    client, app, network, _ = setup
+    assert client.put("/api/profile/orcid", json={"orcid": "0000-0002-1825-0097"}, headers=headers(client)).status_code == 401
+    login(client, network)
+    response = client.put("/api/profile/orcid", json={"orcid": "https://orcid.org/0000-0002-1825-0097"}, headers=headers(client))
+    assert response.status_code == 200 and response.json()["researcher"]["orcid"] == "0000-0002-1825-0097"
+    assert client.get("/api/session").json()["researcher"]["orcid"] == "0000-0002-1825-0097"
+    page = client.get("/researchers/bryce-hackel/").text
+    assert 'href="https://orcid.org/0000-0002-1825-0097"' in page and "self-provided, not verified" in page
+    assert any(r.get("orcid") == "0000-0002-1825-0097" for r in client.get("/data/site.json").json()["researchers"])
+
+    typo = client.put("/api/profile/orcid", json={"orcid": "0000-0002-1825-0098"}, headers=headers(client))
+    assert typo.status_code == 400 and "typo" in typo.json()["detail"]
+    assert client.get("/api/session").json()["researcher"]["orcid"] == "0000-0002-1825-0097"
+
+    # Editing the rest of the profile keeps the ORCID iD.
+    assert client.put("/api/profile", json={"name": "Bryce Hackel"}, headers=headers(client)).status_code == 200
+    assert client.get("/api/session").json()["researcher"]["orcid"] == "0000-0002-1825-0097"
+
+    removed = client.put("/api/profile/orcid", json={"orcid": ""}, headers=headers(client))
+    assert removed.status_code == 200 and "orcid" not in removed.json()["researcher"]
+    assert "orcid.org" not in client.get("/researchers/bryce-hackel/").text
+    assert client.put("/api/profile/orcid", json={"orcid": "0000-0002-1825-0097"}, headers=headers(client)).status_code == 200
+
+    # Another account needs its own profile first, and can't take an ORCID iD already in use.
+    assert client.post("/auth/logout", headers=headers(client)).status_code == 200
+    login(client, network, "alt.bsky.social")
+    missing = client.put("/api/profile/orcid", json={"orcid": "0000-0002-1694-233X"}, headers=headers(client))
+    assert missing.status_code == 400
+    assert client.put("/api/profile", json={"name": "Other Person"}, headers=headers(client)).status_code == 200
+    taken = client.put("/api/profile/orcid", json={"orcid": "0000-0002-1825-0097"}, headers=headers(client))
+    assert taken.status_code == 409
+    assert client.put("/api/profile/orcid", json={"orcid": "0000-0002-1694-233X"}, headers=headers(client)).status_code == 200
+
+
+def test_orcid_search_finds_exact_papers_that_can_be_added(setup, monkeypatch):
+    client, app, network, searcher = setup
+    calls = []
+    async def by_orcid(orcid):
+        calls.append(orcid)
+        return [{**PAPER, "title": "ORCID paper", "id": "arxiv:2606.55555", "arxivId": "2606.55555", "labIds": []}]
+    async def unexpected(*args):
+        raise AssertionError("name search should not run for an ORCID iD")
+    monkeypatch.setattr("backend.app.search_orcid", by_orcid)
+    monkeypatch.setattr("backend.app.search_crossref", unexpected)
+    login(client, network)
+    response = client.post("/api/papers/search", json={"query": "https://orcid.org/0000-0002-1825-0097"}, headers=headers(client))
+    assert response.status_code == 200 and response.json()["kind"] == "orcid"
+    assert calls == ["0000-0002-1825-0097"]
+    paper = response.json()["papers"][0]
+    added = client.post("/api/publications", json={"papers": [{"id": paper["id"]}]}, headers=headers(client))
+    assert added.status_code == 200 and added.json()["results"][0]["status"] == "added"
+    assert network["records"][DID][0]["value"]["title"] == "ORCID paper"
+
+
+def test_orcid_search_uses_openalex_orcid_filter(monkeypatch):
+    from backend import papers
+    seen = []
+    def handle(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"results": [{
+            "title": "Helping Hand", "publication_date": "2026-11-11", "doi": "https://doi.org/10.1234/hand",
+            "authorships": [{"author": {"display_name": "Michael C. Yip"}}],
+            "primary_location": {"landing_page_url": "https://doi.org/10.1234/hand", "source": {"display_name": "ICRA"}}}]})
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(papers.httpx, "AsyncClient", lambda **kwargs: client_class(transport=httpx.MockTransport(handle), **kwargs))
+    result = asyncio.run(papers.search_orcid("https://orcid.org/0000-0001-9689-0172"))
+    assert seen[0]["filter"] == "author.orcid:0000-0001-9689-0172"
+    assert result[0]["title"] == "Helping Hand" and result[0]["doi"] == "10.1234/hand"
 
 def test_empty_install_profile_lab_invitation_and_restart(tmp_path):
     network = {"requests": [], "records": {}, "revoked": []}

@@ -2,6 +2,7 @@ let session, suggestions = [], publications = [], pdsLoaded = false;
 let searchVersion = 0;
 let removingAll = false;
 let selectionName = "";
+let searchKind = "";  // "orcid" when results came from the researcher's ORCID iD
 let shownInvitationToken = sessionStorage.getItem("shown-lab-invite");
 const normalizeName = name => String(name || "").normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 const $ = selector => document.querySelector(selector);
@@ -39,6 +40,12 @@ async function api(path, method = "GET", body) {
   return data;
 }
 
+function showOrcid() {
+  $("#orcid-form").hidden = !session?.researcher;
+  $("#orcid").value = session?.researcher?.orcid || "";
+  $("#orcid-search").hidden = !session?.researcher?.orcid;
+}
+
 let choosingAuthor = false, authorChoices = [];
 function renderAuthorChoices(query) {
   const target = $("#author-choices");
@@ -73,6 +80,7 @@ function renderAuthorChoices(query) {
         try {
           const data = await api("/api/profile/author", "POST", choice);
           session.researcher = data.researcher;
+          showOrcid();
           await renderInvitation();
           await loadLabs();
           selectionName = data.researcher.name;
@@ -86,6 +94,7 @@ function renderAuthorChoices(query) {
           try {
             const results = await api("/api/papers/search", "POST", {query: selectionName});
             if (version !== searchVersion) return;
+            searchKind = results.kind;
             suggestions = results.papers;
             authorChoices = results.authors || [];
             renderSuggestions();
@@ -126,8 +135,9 @@ function renderSuggestions() {
     checkbox.name = "paper";
     checkbox.value = paper.id;
     checkbox.disabled = added(paper) || !pdsLoaded;
-    checkbox.checked = !checkbox.disabled && Boolean(normalizeName(selectionName)) &&
-      (paper.authors || []).some(author => normalizeName(author) === normalizeName(selectionName));
+    // ORCID results are this researcher's own papers, so they start selected.
+    checkbox.checked = !checkbox.disabled && (searchKind === "orcid" || (Boolean(normalizeName(selectionName)) &&
+      (paper.authors || []).some(author => normalizeName(author) === normalizeName(selectionName))));
     label.append(checkbox, document.createTextNode(" " + paper.title));
     const authors = node("p");
     (paper.authors || []).forEach((author, index) => {
@@ -151,6 +161,7 @@ function updateAddButton() {
 $("#suggestions").addEventListener("change", updateAddButton);
 $("#author").addEventListener("input", () => {
   searchVersion++;
+  searchKind = "";
   suggestions = [];
   authorChoices = [];
   $("#author-choices").replaceChildren();
@@ -232,6 +243,8 @@ async function load() {
     $("#profile").append(link);
     $("#author").value = session.researcher.name;
   }
+  showOrcid();
+  searchKind = "";
   ({papers: suggestions} = await api("/api/suggestions"));
   selectionName = session.researcher?.name || "";
   await refreshPublications();
@@ -307,13 +320,28 @@ $("#search").addEventListener("submit", event => {
     }
     if (version !== searchVersion) return;
     selectionName = session.researcher?.name || "";
+    searchKind = data.kind;
     suggestions = data.papers;
     authorChoices = data.authors || [];
-    renderAuthorChoices(author);
+    if (searchKind !== "orcid") renderAuthorChoices(author);
     renderSuggestions();
     if (!suggestions.length) $("#suggestions").replaceChildren(node("p", "No papers found."));
     status(data.warning || "");
   });
+});
+$("#orcid-form").addEventListener("submit", event => {
+  event.preventDefault();
+  run(event.submitter, async () => {
+    const data = await api("/api/profile/orcid", "PUT", {orcid: $("#orcid").value.trim()});
+    session.researcher = data.researcher;
+    showOrcid();
+    status(data.researcher.orcid ? "ORCID iD saved." : "ORCID iD removed.");
+  });
+});
+$("#orcid-search").addEventListener("click", () => {
+  if (!session?.researcher?.orcid) return;
+  $("#author").value = session.researcher.orcid;
+  $("#search").requestSubmit($("#find-papers"));
 });
 $("#lab-create").addEventListener("submit", event => {
   event.preventDefault();
