@@ -1441,3 +1441,185 @@ PR #20 passed and was merged; the main backend deployment succeeded. Two separat
 Assistant (progress update) — 2026-11-17T04:35:19.185Z
 
 The website workflow now builds before testing, and all 55 backend tests pass. I also added bounded retries for temporary GitHub image-upload errors; all 35 JavaScript tests pass. I’m putting both fixes in a follow-up PR.
+
+--------------------
+
+Assistant — 2026-11-17T04:35:46.429Z
+
+Two failures—fixed in [PR #21](https://github.com/12-Last-But-Not-Least/open-archive/pull/21):
+
+- Website deployment ran tests before building required files.
+- Preview image upload hit a GitHub 500; added retries.
+
+All local tests pass. **The live site is healthy and already running merged PR #20.**
+
+--------------------
+
+User — 2026-11-17T04:37:59.822Z
+
+if theres thing to fix then fix them
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T04:38:04.766Z
+
+I’ll check the latest runs and keep fixing any failures I find.
+
+--------------------
+
+Assistant — 2026-11-17T04:38:25.243Z
+
+Confirmed: [PR #21](https://github.com/12-Last-But-Not-Least/open-archive/pull/21) is all green—backend, browser tests, and preview publishing.
+
+The fixes are pushed. They need merging before the website deployment uses them; the red runs you see are from older commits.
+
+--------------------
+
+User — 2026-11-17T06:15:02.444Z
+
+any ideas if we should run a code cleanup
+
+--------------------
+
+Assistant — 2026-11-17T06:15:09.667Z
+
+Yes—a focused cleanup before Thursday, with the current tests protecting the flow.
+
+I’d prioritize:
+
+- **Split `account.js`** into profile, lab/invitation, and publication code.
+- **Share test fixtures** so the browser test server doesn’t import helpers from `test_backend.py`.
+- **Consolidate CI setup** to prevent another workflow missing a build step.
+- **Remove stale demo references and unused code** where we can verify they’re unused.
+
+Keep behavior unchanged. I’d defer a framework migration or broad backend rewrite until after the demo.
+
+--------------------
+
+User — 2026-11-17T06:15:28.276Z
+
+should i merge first
+
+--------------------
+
+Assistant — 2026-11-17T06:15:31.346Z
+
+Yes—merge **[PR #21](https://github.com/12-Last-But-Not-Least/open-archive/pull/21)** first. Its checks passed. Then we can branch the cleanup from main and keep it separate from the fixes.
+
+--------------------
+
+User — 2026-11-17T06:15:41.021Z
+
+ok done
+
+--------------------
+
+Assistant — 2026-11-17T06:15:43.986Z
+
+Great. The cleanup can now start from main as a separate PR.
+
+--------------------
+
+User — 2026-11-17T06:17:00.635Z
+
+spawn subagent to handel that lets talk about smth else
+
+--------------------
+
+Assistant — 2026-11-17T06:17:13.929Z
+
+Spawned a subagent to handle the cleanup, run tests, and open a separate PR. I’ll let you know when it’s ready.
+
+What’s on your mind?
+
+--------------------
+
+User — 2026-11-17T06:17:29.733Z
+
+review the current issue list and tell me if any of them should be changed or removed or added
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T06:17:38.500Z
+
+I’ll compare the open issues with the current code and our MVP scope, then flag what should be updated, closed, or added.
+
+--------------------
+
+Assistant — 2026-11-17T06:18:39.533Z
+
+I checked all **7 open issues** against main. None is clearly completed, but they all lack descriptions and acceptance criteria.
+
+| Issue | Recommendation |
+|---|---|
+| [#9 Edit lab details](https://github.com/12-Last-But-Not-Least/open-archive/issues/9) | **Prioritize.** You can create a lab but can’t correct its details afterward. Specify owner/admin editing and immediate public-page updates. |
+| [#15 Mobile improvements](https://github.com/12-Last-But-Not-Least/open-archive/issues/15) | **Make concrete.** Mobile tests already pass. List actual layout problems with screenshots instead of leaving this open-ended. |
+| [#14 Cache publications](https://github.com/12-Last-But-Not-Least/open-archive/issues/14) | **Keep.** Failed account reads can make papers disappear from the displayed feed. Start with retaining previously loaded results and marking them stale. |
+| [#10 Transfer ownership](https://github.com/12-Last-But-Not-Least/open-archive/issues/10) | **Keep, after demo.** Useful for real labs; currently owners cannot leave or transfer ownership. |
+| [#12 Identical author names](https://github.com/12-Last-But-Not-Least/open-archive/issues/12) | **Clarify.** Accounts have distinct identities already. The problem is distinguishing people in publication search results. |
+| [#13 ORCID](https://github.com/12-Last-But-Not-Least/open-archive/issues/13) | **Keep, after demo.** Distinguish adding an ORCID link from verifying ownership or using it in search. |
+| [#22 Institution autocomplete/verification](https://github.com/12-Last-But-Not-Least/open-archive/issues/22) | **Separate these ideas.** Rename to “Institution autocomplete.” Verifying affiliation is a separate feature and outside our MVP. |
+
+I’d add:
+
+- **Real two-account demo acceptance test:** actual Bluesky sign-in → lab creation → invitation → join → publication visible publicly. Automated tests simulate external services.
+- **Archive/delete a mistakenly created lab:** currently there’s no way to clean one up.
+- **Deduplicate arXiv papers returned as DOIs:** record the bug we observed, but keep it low priority.
+
+For Thursday, I’d prioritize **the real-account test and editing lab details**, then any concrete mobile bugs. I haven’t changed the issues yet.
+
+--------------------
+
+User — 2026-11-17T06:19:04.506Z
+
+any way to like mark them with priority
+
+--------------------
+
+Assistant — 2026-11-17T06:19:12.265Z
+
+Yes—GitHub **labels** are the simplest:
+
+- **P0 · Demo blocker** — core flow broken.
+- **P1 · Before demo** — lab editing, concrete mobile bugs.
+- **P2 · After demo** — caching, ownership transfer, author disambiguation.
+- **P3 · Nice to have** — institution autocomplete, ORCID, DOI deduplication.
+
+Each issue gets one priority label. We can filter the issue list by it.
+
+--------------------
+
+User — 2026-11-17T06:19:36.251Z
+
+ok please set that up
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T06:19:41.274Z
+
+I’ll create the four priority labels and apply them to the seven existing issues using that ordering.
+
+--------------------
+
+User — 2026-11-17T06:19:57.373Z
+
+also you can split my issue
+
+--------------------
+
+Assistant (progress update) — 2026-11-17T06:20:06.097Z
+
+I’ll split #22 into institution autocomplete and affiliation verification, with separate scope and priorities.
+
+--------------------
+
+Assistant — 2026-11-17T06:20:39.818Z
+
+Done—priority labels are created and applied.
+
+Split your issue into:
+
+- [#22 Institution autocomplete](https://github.com/12-Last-But-Not-Least/open-archive/issues/22)
+- [#23 Affiliation verification](https://github.com/12-Last-But-Not-Least/open-archive/issues/23)
+
+Both are **P3 · Nice to have**, with separate acceptance criteria and links to each other.
