@@ -7,7 +7,6 @@ import os
 import re
 import secrets
 import time
-import unicodedata
 from html import escape
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,16 +20,12 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .oauth import client_metadata, make_client
 from .network import get_json
 from .papers import COLLECTION, ArxivSearch, list_papers, make_record, paper_key, paper_keys, record_key, xrpc
-from .storage import Database, OAuthStore
+from .storage import Database, OAuthStore, normalized_name
 from .papers import normalize_doi, lookup_doi, search_crossref, rank_papers, search_openalex, search_datacite
 from .papers import normalize_orcid, search_orcid
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKIE = "open_archive_session"
-
-
-def normalized_name(value):
-    return " ".join(unicodedata.normalize("NFC", value).casefold().split()) if isinstance(value, str) else ""
 
 
 class Input(BaseModel):
@@ -370,11 +365,30 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
                normalized_name(lab.get("institution", "")) == normalized_name(payload.institution) for lab in labs):
             raise HTTPException(409, "This lab is already listed.")
         identifier = "lab-" + hashlib.sha256((normalized_name(payload.name) + "|" + normalized_name(payload.institution)).encode()).hexdigest()[:16]
+        # A renamed lab retains its ID; its former name can be used again.
+        if any(lab["id"] == identifier for lab in labs):
+            identifier = "lab-" + secrets.token_hex(8)
         lab = {"id": identifier, "name": payload.name.strip(), "shortName": payload.name.strip(),
                "institution": payload.institution.strip(),
                "members": [], "about": payload.about.strip(), "contactEmail": payload.contactEmail.strip()}
         try:
             database.create_lab(identifier, session.did, lab)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from None
+        return {"lab": lab}
+
+    @app.put("/api/labs/{identifier}")
+    async def edit_lab(identifier: str, payload: LabProfile, request: Request):
+        _, _, _, session = await authenticated(request)
+        if not all(value.strip() for value in (payload.name, payload.institution)):
+            raise HTTPException(400, "Enter the lab name and institution.")
+        details = {key: value.strip() for key, value in payload.model_dump().items()}
+        try:
+            lab = database.edit_lab(identifier, session.did, details)
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from None
+        except PermissionError as error:
+            raise HTTPException(403, str(error)) from None
         except ValueError as error:
             raise HTTPException(409, str(error)) from None
         return {"lab": lab}

@@ -90,17 +90,37 @@ test('two researchers create a lab, join, publish and update its public page', a
     await expect(visitor.locator('#publication-list')).toContainText('Shared lab research');
     await expect(visitor.locator('#lab-about')).toHaveText('Research shared by our members.');
     await expect(visitor.locator('html')).toHaveJSProperty('scrollWidth', visitor.viewportSize().width);
+
+    // Owners can edit existing labs; ordinary members cannot.
+    await expect(member.getByText('Edit lab details', {exact: true})).toHaveCount(0);
+    await labSection.getByText('Edit lab details', {exact: true}).click();
+    await expect(labSection.getByLabel('Edit lab name')).toHaveValue(labName);
+    const editedName = labName + ' Updated';
+    await labSection.getByLabel('Edit lab name').fill(editedName);
+    await labSection.getByLabel('Edit institution').fill('Updated University');
+    await labSection.getByLabel('Edit description').fill('Updated lab research.');
+    await labSection.getByLabel('Edit contact email').fill('lab@example.org');
+    await labSection.getByRole('button', {name: 'Save lab details'}).click();
+    await expect(owner.locator('#status')).toHaveText('Lab details saved.');
+    await owner.reload();
+    await expect(owner.locator('#my-labs').getByRole('link', {name: editedName})).toHaveAttribute('href', labURL);
+
     await visitor.reload();
+    await expect(visitor.getByRole('heading', {level: 1})).toHaveText(editedName);
+    await expect(visitor.locator('.profile .institution')).toHaveText('Updated University');
+    await expect(visitor.locator('#lab-about')).toHaveText('Updated lab research.');
+    await expect(visitor.locator('#lab-contact')).toContainText('lab@example.org');
+    await expect(visitor.locator('#lab-members')).toContainText('Lab Member');
     await expect(visitor.locator('#publication-list')).toContainText('Shared lab research');
     await visitor.goto(profileURL);
     await expect(visitor.locator('#publication-list')).toContainText('Shared lab research');
-    await expect(visitor.locator('#affiliations')).toContainText(labName);
+    await expect(visitor.locator('#affiliations')).toContainText(editedName);
 
     await member.reload();
-    await expect(member.locator('#my-labs')).toContainText(labName);
+    await expect(member.locator('#my-labs')).toContainText(editedName);
     member.once('dialog', dialog => dialog.accept());
     await member.getByRole('button', {name: 'Leave lab', exact: true}).last().click();
-    await expect(member.locator('#my-labs')).not.toContainText(labName);
+    await expect(member.locator('#my-labs')).not.toContainText(editedName);
     await visitor.goto(labURL);
     await expect(visitor.locator('#lab-members')).not.toContainText('Lab Member');
     await expect(visitor.locator('#publication-list')).toContainText('No publications added yet.');

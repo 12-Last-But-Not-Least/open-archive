@@ -450,6 +450,46 @@ async function renderInvitation() {
   target.append(dismiss);
 }
 
+function labEditor(lab) {
+  const details = node("details");
+  details.append(node("summary", "Edit lab details"));
+  const form = node("form");
+  const fields = {};
+  for (const [key, label, type, maxLength, required] of [
+    ["name", "Edit lab name", "text", 200, true],
+    ["institution", "Edit institution", "text", 200, true],
+    ["about", "Edit description", "textarea", 2000, false],
+    ["contactEmail", "Edit contact email", "email", 254, false],
+  ]) {
+    const row = node("p");
+    const caption = node("label", label + " ");
+    const input = node(type === "textarea" ? "textarea" : "input");
+    if (type !== "textarea") input.type = type;
+    input.value = lab[key] || "";
+    input.maxLength = maxLength;
+    input.required = required;
+    if (required) input.minLength = 2;
+    caption.append(input);
+    row.append(caption);
+    form.append(row);
+    fields[key] = input;
+  }
+  const save = node("button", "Save lab details");
+  save.type = "submit";
+  form.append(save);
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    return run(save, async () => {
+      const payload = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value.trim()]));
+      await api("/api/labs/" + encodeURIComponent(lab.id), "PUT", payload);
+      await loadLabs();
+      status("Lab details saved.");
+    });
+  });
+  details.append(form);
+  return details;
+}
+
 async function loadLabs() {
   const {labs} = await api("/api/my-labs");
   const target = $("#my-labs");
@@ -469,6 +509,7 @@ async function loadLabs() {
       return button;
     };
     if (["owner", "admin"].includes(lab.role)) {
+      section.append(labEditor(lab));
       const invite = node("div");
       section.append(action("Create invitation link", async () => {
         const result = await api("/api/labs/" + lab.id + "/invite", "POST");

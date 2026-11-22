@@ -688,3 +688,55 @@ def test_empty_install_profile_lab_invitation_and_restart(tmp_path):
         directory = fresh.get("/data/site.json").json()
         assert len(directory["researchers"]) == 2 and len(directory["labs"]) == 1
         assert fresh.get("/labs/" + lab["id"] + "/").status_code == 200
+
+
+def test_edit_lab_details_permissions_and_persistence(setup):
+    owner, app, network, _ = setup
+    login(owner, network)
+    original = {"name": "Editable Lab", "institution": "University", "about": "Original", "contactEmail": "old@example.org"}
+    lab = owner.post("/api/labs", json=original, headers=headers(owner)).json()["lab"]
+    path = "/api/labs/" + lab["id"]
+    public_path = "/labs/" + lab["id"] + "/"
+    token = owner.post(path + "/invite", headers=headers(owner)).json()["url"].split("invite=")[1]
+    changed = {"name": "Renamed Lab", "institution": "New University", "about": "Updated research", "contactEmail": "new@example.org"}
+
+    with TestClient(app, base_url=ORIGIN) as anonymous, TestClient(app, base_url=ORIGIN) as other:
+        assert anonymous.put(path, json=changed, headers=headers(anonymous)).status_code == 401
+        login(other, network, "other.bsky.social")
+        assert other.put(path, json=changed, headers=headers(other)).status_code == 403
+        profile = other.put("/api/profile", json={"name": "Other Author"}, headers=headers(other)).json()["researcher"]
+        assert other.post(path + "/join", json={"token": token}, headers=headers(other)).status_code == 200
+        assert other.put(path, json=changed, headers=headers(other)).status_code == 403
+
+        response = owner.put(path, json=changed, headers=headers(owner))
+        assert response.status_code == 200
+        assert response.json()["lab"]["id"] == lab["id"]
+        assert owner.post(path + "/members", json={"did": OTHER, "action": "admin"}, headers=headers(owner)).status_code == 200
+        final = {**changed, "about": "Admin updated research", "contactEmail": ""}
+        assert other.put(path, json=final, headers=headers(other)).status_code == 200
+        assert owner.get("/api/lab-invites/" + token).json()["lab"]["name"] == final["name"]
+        assert owner.put("/api/labs/missing", json=final, headers=headers(owner)).status_code == 404
+        assert owner.put(path, json={**final, "name": "  "}, headers=headers(owner)).status_code == 400
+        assert owner.put(path, json={**final, "contactEmail": "invalid"}, headers=headers(owner)).status_code == 422
+        assert owner.put(path, json={**final, "members": []}, headers=headers(owner)).status_code == 422
+        assert owner.put(path, json=final, headers={"Origin": ORIGIN}).status_code == 403
+
+        # The old name is available again, but another lab's name and
+        # institution combination cannot be taken by an edit.
+        replacement = owner.post("/api/labs", json=original, headers=headers(owner))
+        assert replacement.status_code == 200
+        assert replacement.json()["lab"]["id"] != lab["id"]
+        assert owner.put(path, json=original, headers=headers(owner)).status_code == 409
+        assert other.get("/api/my-labs").json()["labs"][0]["role"] == "admin"
+        page = anonymous.get(public_path)
+        assert page.status_code == 200
+        assert final["name"] in page.text and final["institution"] in page.text
+
+    restarted = create_app(directory=app.state.database.path.parent)
+    with TestClient(restarted, base_url=ORIGIN) as fresh:
+        saved = next(entry for entry in fresh.get("/data/site.json").json()["labs"] if entry["id"] == lab["id"])
+        assert {key: saved[key] for key in final} == final
+        assert saved["shortName"] == final["name"]
+        assert set(saved["members"]) == {"bryce-hackel", profile["id"]}
+        assert fresh.get(public_path).status_code == 200
+        assert fresh.get("/api/lab-invites/" + token).json()["lab"]["id"] == lab["id"]
