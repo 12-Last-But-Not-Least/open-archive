@@ -1,88 +1,20 @@
 import asyncio
 import copy
-from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-from atproto_oauth.models import OAuthSession, OAuthState
-from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
 
 from backend.app import COOKIE, create_app, normalized_name
-from backend.oauth import ArchiveOAuthClient, SCOPE, refresh_did
-from backend.papers import COLLECTION, parse_arxiv, normalize_doi, parse_crossref
-from backend.storage import Database, OAuthStore
+from backend.oauth import ArchiveOAuthClient, refresh_did
+from backend.papers import COLLECTION, parse_arxiv, normalize_doi, normalize_orcid, parse_crossref
+from backend.storage import Database
+from tests.support import DID, OTHER, ORIGIN, PAPER, FakeOAuth, FakeSearch
 
-ORIGIN = "http://127.0.0.1:8000"
-DID = "did:plc:rqu4asr46qcalfx5b2mxqzvx"
-OTHER = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa"
 CONFIG = {"collection": COLLECTION, "researchers": [
     {"id": "bryce-hackel", "name": "Bryce Hackel", "did": DID, "handle": "bhackel.bsky.social"},
     {"id": "jay", "name": "Jay", "did": "", "handle": ""},
 ], "labs": [{"id": "ucsd-arc", "name": "ARC", "members": ["bryce-hackel"]}]}
-PAPER = {"id": "arxiv:2606.14083", "arxivId": "2606.14083", "title": "N2D", "authors": ["Bryce Hackel"],
-         "publishedAt": "2026-06-12T00:00:00Z", "url": "https://arxiv.org/abs/2606.14083",
-         "researcherIds": ["bryce-hackel"], "labIds": ["ucsd-arc"]}
-
-
-class FakeOAuth:
-    def __init__(self, database, browser_key, origin, network):
-        self.state_store = self.session_store = OAuthStore(database, browser_key)
-        self.network = network
-
-    async def start_authorization(self, handle):
-        import secrets
-        self.network["state"] = state = secrets.token_urlsafe(32)
-        await self.state_store.save_state(OAuthState(
-            state=state, pkce_verifier="test-verifier", redirect_uri=ORIGIN + "/auth/callback",
-            scope=SCOPE, authserver_iss="https://bsky.social", dpop_private_key=ec.generate_private_key(ec.SECP256R1()),
-            dpop_authserver_nonce="test-nonce", did=DID if handle == "bhackel.bsky.social" else OTHER, handle=handle))
-        return "https://bsky.social/oauth/authorize?request_uri=test", state
-
-    async def handle_callback(self, code, state, iss):
-        saved = await self.state_store.get_state(state)
-        if not saved or iss != saved.authserver_iss or code != "test-code":
-            raise ValueError("Invalid callback")
-        await self.state_store.delete_state(state)
-        session = OAuthSession(
-            did=saved.did, handle=saved.handle, pds_url="https://example.test", authserver_iss=iss,
-            access_token="test-secret-access", refresh_token="test-secret-refresh", dpop_private_key=saved.dpop_private_key,
-            dpop_authserver_nonce="test-nonce", scope=SCOPE, expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
-        await self.session_store.save_session(session)
-        return session
-
-    async def revoke_session(self, session):
-        self.network["revoked"].append(session.did)
-        await self.session_store.delete_session(session.did)
-
-    async def make_authenticated_request(self, session, method, url, **kwargs):
-        self.network["requests"].append((session.did, method, url, kwargs))
-        records = self.network["records"].setdefault(session.did, [])
-        if url.endswith("listRecords"):
-            data = {"records": records}
-        elif url.endswith("createRecord"):
-            body = kwargs["json"]
-            if body["record"]["title"] == "Fail":
-                return httpx.Response(503, request=httpx.Request(method, url))
-            uri = f'at://{session.did}/{COLLECTION}/{body["rkey"]}'
-            records.append({"uri": uri, "value": body["record"], "cid": "test-cid"})
-            data = {"uri": uri}
-        elif url.endswith("deleteRecord"):
-            rkey = kwargs["json"]["rkey"]
-            records[:] = [r for r in records if not r["uri"].endswith("/" + rkey)]
-            data = {}
-        else:
-            raise AssertionError(url)
-        return httpx.Response(200, json=data, request=httpx.Request(method, url))
-
-
-class FakeSearch:
-    def __init__(self):
-        self.calls = []
-
-    async def search(self, author):
-        self.calls.append(author)
-        return [{**PAPER, "title": "New paper", "id": "arxiv:2606.99999", "arxivId": "2606.99999"}]
 
 
 @pytest.fixture
@@ -635,6 +567,93 @@ def test_lab_invitation_membership_and_permissions(setup):
     restarted = Database(app.state.database.path.parent)
     assert restarted.lab_members(lab["id"]) == [{"lab_id": lab["id"], "did": DID, "role": "owner"}]
 
+
+@pytest.mark.parametrize("value,expected", [
+    ("0000-0002-1825-0097", "0000-0002-1825-0097"),
+    ("https://orcid.org/0000-0002-1825-0097", "0000-0002-1825-0097"),
+    ("orcid.org/0000000218250097/", "0000-0002-1825-0097"),
+    (" 0000-0002-1694-233x ", "0000-0002-1694-233X"),
+])
+def test_orcid_inputs(value, expected):
+    assert normalize_orcid(value) == expected
+
+
+@pytest.mark.parametrize("value", ["", "1234", "0000-0002-1825-0098", "0000-0002-1825-009",
+                                   "https://example.com/0000-0002-1825-0097", "0000-0002-1825-00970", None])
+def test_orcid_rejects_invalid_inputs(value):
+    with pytest.raises(ValueError):
+        normalize_orcid(value)
+
+
+def test_orcid_is_saved_shown_removed_and_unique(setup):
+    client, app, network, _ = setup
+    assert client.put("/api/profile/orcid", json={"orcid": "0000-0002-1825-0097"}, headers=headers(client)).status_code == 401
+    login(client, network)
+    response = client.put("/api/profile/orcid", json={"orcid": "https://orcid.org/0000-0002-1825-0097"}, headers=headers(client))
+    assert response.status_code == 200 and response.json()["researcher"]["orcid"] == "0000-0002-1825-0097"
+    assert client.get("/api/session").json()["researcher"]["orcid"] == "0000-0002-1825-0097"
+    page = client.get("/researchers/bryce-hackel/").text
+    assert 'href="https://orcid.org/0000-0002-1825-0097"' in page and "self-provided, not verified" in page
+    assert any(r.get("orcid") == "0000-0002-1825-0097" for r in client.get("/data/site.json").json()["researchers"])
+
+    typo = client.put("/api/profile/orcid", json={"orcid": "0000-0002-1825-0098"}, headers=headers(client))
+    assert typo.status_code == 400 and "typo" in typo.json()["detail"]
+    assert client.get("/api/session").json()["researcher"]["orcid"] == "0000-0002-1825-0097"
+
+    # Editing the rest of the profile keeps the ORCID iD.
+    assert client.put("/api/profile", json={"name": "Bryce Hackel"}, headers=headers(client)).status_code == 200
+    assert client.get("/api/session").json()["researcher"]["orcid"] == "0000-0002-1825-0097"
+
+    removed = client.put("/api/profile/orcid", json={"orcid": ""}, headers=headers(client))
+    assert removed.status_code == 200 and "orcid" not in removed.json()["researcher"]
+    assert "orcid.org" not in client.get("/researchers/bryce-hackel/").text
+    assert client.put("/api/profile/orcid", json={"orcid": "0000-0002-1825-0097"}, headers=headers(client)).status_code == 200
+
+    # Another account needs its own profile first, and can't take an ORCID iD already in use.
+    assert client.post("/auth/logout", headers=headers(client)).status_code == 200
+    login(client, network, "alt.bsky.social")
+    missing = client.put("/api/profile/orcid", json={"orcid": "0000-0002-1694-233X"}, headers=headers(client))
+    assert missing.status_code == 400
+    assert client.put("/api/profile", json={"name": "Other Person"}, headers=headers(client)).status_code == 200
+    taken = client.put("/api/profile/orcid", json={"orcid": "0000-0002-1825-0097"}, headers=headers(client))
+    assert taken.status_code == 409
+    assert client.put("/api/profile/orcid", json={"orcid": "0000-0002-1694-233X"}, headers=headers(client)).status_code == 200
+
+
+def test_orcid_search_finds_exact_papers_that_can_be_added(setup, monkeypatch):
+    client, app, network, searcher = setup
+    calls = []
+    async def by_orcid(orcid):
+        calls.append(orcid)
+        return [{**PAPER, "title": "ORCID paper", "id": "arxiv:2606.55555", "arxivId": "2606.55555", "labIds": []}]
+    async def unexpected(*args):
+        raise AssertionError("name search should not run for an ORCID iD")
+    monkeypatch.setattr("backend.app.search_orcid", by_orcid)
+    monkeypatch.setattr("backend.app.search_crossref", unexpected)
+    login(client, network)
+    response = client.post("/api/papers/search", json={"query": "https://orcid.org/0000-0002-1825-0097"}, headers=headers(client))
+    assert response.status_code == 200 and response.json()["kind"] == "orcid"
+    assert calls == ["0000-0002-1825-0097"]
+    paper = response.json()["papers"][0]
+    added = client.post("/api/publications", json={"papers": [{"id": paper["id"]}]}, headers=headers(client))
+    assert added.status_code == 200 and added.json()["results"][0]["status"] == "added"
+    assert network["records"][DID][0]["value"]["title"] == "ORCID paper"
+
+
+def test_orcid_search_uses_openalex_orcid_filter(monkeypatch):
+    from backend import papers
+    seen = []
+    def handle(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"results": [{
+            "title": "Helping Hand", "publication_date": "2026-11-11", "doi": "https://doi.org/10.1234/hand",
+            "authorships": [{"author": {"display_name": "Michael C. Yip"}}],
+            "primary_location": {"landing_page_url": "https://doi.org/10.1234/hand", "source": {"display_name": "ICRA"}}}]})
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(papers.httpx, "AsyncClient", lambda **kwargs: client_class(transport=httpx.MockTransport(handle), **kwargs))
+    result = asyncio.run(papers.search_orcid("https://orcid.org/0000-0001-9689-0172"))
+    assert seen[0]["filter"] == "author.orcid:0000-0001-9689-0172"
+    assert result[0]["title"] == "Helping Hand" and result[0]["doi"] == "10.1234/hand"
 
 def test_empty_install_profile_lab_invitation_and_restart(tmp_path):
     network = {"requests": [], "records": {}, "revoked": []}

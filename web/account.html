@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/assets/style.css">
   <script type="module" src="/assets/account.js"></script>
 </head>
-<body>
+<body data-page="account">
   <header><nav aria-label="Main"><a href="/">Open Archive</a> | <a href="/researchers/">Researchers</a> | <a href="/labs/">Labs</a> | <a href="/publications/">Publications</a> | <a href="/account/" aria-current="page">Account</a></nav></header>
   <main>
     <h1>Account</h1>
@@ -34,6 +34,13 @@
     <div id="account" hidden>
       <p id="identity"></p>
       <p id="profile"></p>
+      <form id="orcid-form" hidden>
+        <label for="orcid">ORCID iD (optional)</label>
+        <input id="orcid" placeholder="0000-0002-1825-0097" maxlength="100" autocomplete="off">
+        <button type="submit">Save ORCID iD</button>
+        <button id="orcid-search" type="button" hidden>Find papers by ORCID iD</button>
+        <p class="note">Shown publicly on your profile as self-provided. Open Archive doesn't verify that you own this ORCID iD.</p>
+      </form>
       <p id="setup-guidance"></p>
       <button id="remove-profile" type="button" hidden>Remove researcher profile</button>
       <button id="logout" type="button">Sign out</button>

@@ -47,13 +47,15 @@ test('two researchers create a lab, join, publish and update its public page', a
     await signIn(owner, 'bhackel.bsky.social');
     await profile(owner, 'Lab Owner');
     await owner.getByText('Add a lab', {exact: true}).click();
-    const labName = 'MVP Lab ' + info.project.name;
+    // Valid single-word names must wrap in account, invitation, and public views.
+    const labName = 'Bioinformatics'.repeat(10) + ' ' + info.project.name;
     await owner.getByLabel('Lab name', {exact: true}).fill(labName);
     await owner.locator('#lab-institution').fill('Example University');
     await owner.getByLabel('Description', {exact: true}).fill('Research shared by our members.');
     await owner.getByRole('button', {name: 'Add lab', exact: true}).click();
     const labLink = owner.locator('#my-labs').getByRole('link', {name: labName});
     await expect(labLink).toBeVisible();
+    await expect(owner.locator('html')).toHaveJSProperty('scrollWidth', owner.viewportSize().width);
     const labURL = await labLink.getAttribute('href');
     const labSection = owner.locator('#my-labs section').filter({has: owner.getByRole('link', {name: labName, exact: true})});
     await labSection.getByRole('button', {name: 'Create invitation link', exact: true}).click();
@@ -61,8 +63,11 @@ test('two researchers create a lab, join, publish and update its public page', a
 
     const member = await newUser();
     await member.goto(invitation);
-    await expect(member.getByRole('dialog')).toContainText(labName);
+    const dialog = member.getByRole('dialog');
+    await expect(dialog).toContainText(labName);
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     await member.getByRole('button', {name: 'Continue', exact: true}).click();
+    await expect(member.getByLabel('ATProto handle')).toBeFocused();
     await signIn(member, 'member.bsky.social');
     await profile(member, 'Lab Member');
     await member.getByRole('button', {name: 'Join lab', exact: true}).click();
@@ -75,11 +80,16 @@ test('two researchers create a lab, join, publish and update its public page', a
     const profileURL = await member.locator('#profile a').getAttribute('href');
 
     const visitor = await newUser();
-    await visitor.goto(labURL);
+    await visitor.goto('/labs/');
+    const listedLab = visitor.getByRole('link', {name: labName, exact: true});
+    await expect(listedLab).toBeVisible();
+    await expect(visitor.locator('html')).toHaveJSProperty('scrollWidth', visitor.viewportSize().width);
+    await listedLab.click();
     await expect(visitor.locator('#lab-members')).toContainText('Lab Member');
     await expect(visitor.locator('#lab-members')).toContainText('Lab Owner');
     await expect(visitor.locator('#publication-list')).toContainText('Shared lab research');
     await expect(visitor.locator('#lab-about')).toHaveText('Research shared by our members.');
+    await expect(visitor.locator('html')).toHaveJSProperty('scrollWidth', visitor.viewportSize().width);
 
     // Owners can edit existing labs; ordinary members cannot.
     await expect(member.getByText('Edit lab details', {exact: true})).toHaveCount(0);

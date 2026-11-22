@@ -106,7 +106,7 @@ for (const state of ['signed-out', 'choose-author', 'join', 'expired']) {
     await page.goto('/account/?invite=preview-token');
     await accountReady(page);
     await expect(page.locator('#lab-invitation')).toBeVisible();
-    // The base branch has no popup; PR #16 introduces it. Capture both versions.
+    // Capture both the initial invitation state and its card after dismissing the popup.
     await capture(page, info, `invitation-${state}-initial`);
     const dialog = page.locator('#invitation-dialog[open]');
     if (await dialog.count()) {

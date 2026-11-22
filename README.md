@@ -16,6 +16,10 @@ Profile deletion hides the person from the directory but preserves their lab rol
 
 ## Checks
 
+Backend and Pages deployments both use `.github/actions/check-app` to install the same runtimes/dependencies, build the website, then run Python and JavaScript checks. Pages supplies its backend URL to that action; browser/MVP and container checks remain in their own workflow steps.
+
+Shared Python OAuth/PDS/search doubles live in `tests/support.py`, imported by both backend tests and the loopback MVP server. Test modules are not dependencies of the MVP server, and none of these helpers are part of the production container.
+
 `python scripts/build.py` then `python -m pytest -q tests/test_backend.py tests/test_hosting.py`
 
 `npm ci` then `npm test` and `npm run test:browser`.

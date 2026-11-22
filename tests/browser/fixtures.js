@@ -35,7 +35,7 @@ export const test = base.extend({
         const template = await fs.readFile(path.resolve(process.env.PLAYWRIGHT_APP_DIR || '.', 'web', `${kind}.html`), 'utf8');
         const values = {ROOT: '/', API_ROOT: '', ACCOUNT_LINK: ' | <a href="/account/">Account</a>',
           ID: entry.id, NAME: entry.name, SHORT_NAME: entry.name, INSTITUTION: entry.institution,
-          MEMBER_COUNT: '1', MEMBERS: '', PUBLICATIONS: '', AFFILIATIONS: '', ACCOUNT: '', DEMO_NOTE: ''};
+          MEMBER_COUNT: '1', MEMBERS: '', PUBLICATIONS: '', AFFILIATIONS: '', ACCOUNT: ''};
         return route.fulfill({contentType: 'text/html', body: template.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => values[key] || '')});
       }
 

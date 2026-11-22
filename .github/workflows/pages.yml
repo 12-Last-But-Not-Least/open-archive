@@ -18,23 +18,9 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/check-app
         with:
-          python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm ci --ignore-scripts
-      - name: Test public record handling
-        run: node --test tests/*.test.js
-      - name: Install backend dependencies
-        run: python -m pip install -r requirements.txt
-      - name: Check data and build static pages
-        env:
-          OPEN_ARCHIVE_BACKEND_URL: ${{ vars.OPEN_ARCHIVE_BACKEND_URL }}
-        run: python scripts/build.py
-      - name: Test login and publication handling
-        run: python -m pytest -q tests/test_backend.py tests/test_hosting.py
+          backend-url: ${{ vars.OPEN_ARCHIVE_BACKEND_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

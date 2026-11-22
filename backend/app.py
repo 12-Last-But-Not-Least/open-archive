@@ -22,6 +22,7 @@ from .network import get_json
 from .papers import COLLECTION, ArxivSearch, list_papers, make_record, paper_key, paper_keys, record_key, xrpc
 from .storage import Database, OAuthStore, normalized_name
 from .papers import normalize_doi, lookup_doi, search_crossref, rank_papers, search_openalex, search_datacite
+from .papers import normalize_orcid, search_orcid
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKIE = "open_archive_session"
@@ -50,6 +51,10 @@ class DoiLookup(Input):
 class ResearcherProfile(Input):
     name: str = Field(min_length=2, max_length=120)
     institution: str = Field(default="", max_length=200)
+
+
+class OrcidChoice(Input):
+    orcid: str = Field(max_length=100)  # Empty removes the ORCID iD.
 
 
 class AuthorChoice(Input):
@@ -178,7 +183,7 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
 
     @app.middleware("http")
     async def security(request, call_next):
-        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10, "/api/papers/search": 10, "/api/labs": 10, "/api/profile": 20, "/api/profile/author": 20}
+        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10, "/api/papers/search": 10, "/api/labs": 10, "/api/profile": 20, "/api/profile/author": 20, "/api/profile/orcid": 20}
         if request.url.path in limits and not rate_limit(request, limits[request.url.path]):
             return JSONResponse({"detail": "Too many requests. Try again in a minute."}, status_code=429,
                                 headers={"Retry-After": "60"})
@@ -328,6 +333,26 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
         database.save_directory_entry("researchers", identifier, session.did, profile)
         return {"researcher": profile}
 
+    @app.put("/api/profile/orcid")
+    async def save_orcid(payload: OrcidChoice, request: Request):
+        _, _, _, session = await authenticated(request)
+        current = researcher_for(session.did)
+        if not current:
+            raise HTTPException(400, "Choose your author name before adding an ORCID iD.")
+        profile = {key: value for key, value in current.items() if key != "orcid"}
+        if payload.orcid.strip():
+            try:
+                orcid = normalize_orcid(payload.orcid)
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from None
+            # An ORCID iD identifies one person, so two profiles can't share it.
+            if any(r.get("orcid") == orcid and r.get("did") != session.did for r in public_config()["researchers"]):
+                raise HTTPException(409, "Another researcher profile already uses this ORCID iD.")
+            profile["orcid"] = orcid
+        profile["autoCreated"] = False
+        database.save_directory_entry("researchers", current["id"], session.did, profile)
+        return {"researcher": profile}
+
     @app.post("/api/labs")
     async def create_lab(payload: LabProfile, request: Request):
         _, _, _, session = await authenticated(request)
@@ -442,6 +467,18 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
     async def paper_search(payload: PaperSearch, request: Request):
         key, _, _, _ = await authenticated(request)
         query = payload.query.strip()
+        try:
+            orcid = normalize_orcid(query)
+        except ValueError:
+            orcid = None
+        if orcid:
+            # An ORCID iD finds exactly this person's papers, even when others share the name.
+            try:
+                papers = await search_orcid(orcid)
+            except Exception:
+                raise HTTPException(502, "ORCID search is unavailable. Try again later.") from None
+            remember_suggestions(key, papers)
+            return {"papers": [{**p, "id": paper_key(p)} for p in papers], "authors": [], "kind": "orcid", "warning": ""}
         if query.lower().startswith(("10.", "doi:", "https://", "http://")):
             result = await doi_lookup(DoiLookup(doi=query), request)
             return {**result, "kind": "doi"}
@@ -598,8 +635,10 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
             raise HTTPException(404, "Researcher not found.")
         labs = [lab for lab in directory["labs"] if identifier in lab["members"]]
         account = '<a href="https://bsky.app/profile/' + escape(researcher["did"], quote=True) + '">@' + escape(researcher["handle"]) + '</a>' if researcher.get("did") else "No ATProto account linked yet."
+        orcid = ('ORCID iD: <a href="https://orcid.org/' + escape(researcher["orcid"], quote=True) + '">' +
+                 escape(researcher["orcid"]) + '</a> (self-provided, not verified)') if researcher.get("orcid") else ""
         return render_public("researcher.html", {"ID": escape(identifier), "NAME": escape(researcher["name"]),
-            "INSTITUTION": escape(researcher.get("institution", "")), "ACCOUNT": account,
+            "INSTITUTION": escape(researcher.get("institution", "")), "ACCOUNT": account, "ORCID": orcid,
             "AFFILIATIONS": directory_html(labs, "labs"), "PUBLICATIONS": ""})
 
     @app.get("/labs/{identifier}/")
