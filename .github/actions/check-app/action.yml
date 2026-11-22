@@ -1,0 +1,32 @@
+name: Build and test the application
+description: Shared prerequisites and checks for backend and static-site deployments.
+inputs:
+  backend-url:
+    description: Backend origin used by the static Pages build; empty for same-origin builds.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - run: python -m pip install -r requirements.txt
+      shell: bash
+    - run: npm ci --ignore-scripts
+      shell: bash
+    - name: Build website before backend tests
+      env:
+        OPEN_ARCHIVE_BACKEND_URL: ${{ inputs.backend-url }}
+      run: python scripts/build.py
+      shell: bash
+    - name: Test login and publication handling
+      run: python -m pytest -q tests/test_backend.py tests/test_hosting.py
+      shell: bash
+    - name: Test public records and account controls
+      run: node --test tests/*.test.js
+      shell: bash

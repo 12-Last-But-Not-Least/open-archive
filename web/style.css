@@ -39,6 +39,10 @@ textarea { font: inherit; width: min(100%, 36rem); box-sizing: border-box; min-h
 #invitation-dialog h2 {margin-top: 0;}
 #invitation-dialog form {display: flex; justify-content: flex-end;}
 
+body[data-page="account"] main,
+body[data-page="lab"] main,
+body[data-kind="labs"] #directory-list { overflow-wrap: anywhere; }
+
 #lab-invitation {margin: 1rem 0; padding: 1.25rem; border: 1px solid #2563eb; border-left: 4px solid #2563eb; background: #eff6ff;}
 #lab-invitation > p:first-child {margin: 0 0 0.5rem; color: #1e40af; font-weight: bold;}
 #lab-invitation h2 {margin: 0 0 1rem; overflow-wrap: anywhere;}
