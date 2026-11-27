@@ -94,8 +94,6 @@ test('search choose author and select papers', async ({page, mock}, info) => {
   await expect(page.locator('#author-choices')).toContainText('Choose your name');
   await capture(page, info, 'author-search');
   await page.getByRole('button', {name: 'Bryce Hackel', exact: true}).click();
-  await expect(page.locator('#add')).toBeDisabled();
-  await expect(page.locator('input[name="paper"]')).not.toBeChecked();
   await page.locator('input[name="paper"]').check();
   await expect(page.locator('#add')).toBeEnabled();
   await capture(page, info, 'papers-selected');

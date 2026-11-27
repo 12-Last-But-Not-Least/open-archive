@@ -114,6 +114,10 @@ async def search_crossref(query, field):
 
 
 def metadata_paper(title, authors, date, url, source, doi="", venue="", details=None):
+    """Validated paper dict shared by the OpenAlex and DataCite parsers.
+
+    `details` is an optional per-author list of {"name", "affiliation"} aligned with `authors`.
+    """
     if not isinstance(title, str) or not title.strip() or not authors:
         raise ValueError("Missing title or authors")
     parsed = urlparse(url or "")

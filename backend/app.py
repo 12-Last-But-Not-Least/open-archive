@@ -502,7 +502,7 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
             except Exception:
                 raise HTTPException(502, "ORCID search is unavailable. Try again later.") from None
             remember_suggestions(key, papers)
-            return {"papers": [{**p, "id": paper_key(p)} for p in papers], "authors": [], "kind": "orcid", "warning": ""}
+            return {"papers": [{**p, "id": paper_key(p)} for p in papers], "kind": "orcid", "warning": ""}
         if query.lower().startswith(("10.", "doi:", "https://", "http://")):
             result = await doi_lookup(DoiLookup(doi=query), request)
             return {**result, "kind": "doi"}
