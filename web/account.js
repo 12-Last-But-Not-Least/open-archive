@@ -155,9 +155,16 @@ function renderSuggestions() {
 }
 
 function updateAddButton() {
-  $("#add").disabled = removingAll || !session?.researcher || !pdsLoaded || !document.querySelector('input[name="paper"]:checked:not(:disabled)');
+  const hasName = Boolean(session?.researcher?.name);
+  $("#paper-profile-guidance").hidden = hasName;
+  $("#add").disabled = removingAll || !hasName || !pdsLoaded || !document.querySelector('input[name="paper"]:checked:not(:disabled)');
 }
 
+$("#set-paper-profile-name").addEventListener("click", event => {
+  event.preventDefault();
+  $("#profile-edit").closest("details").open = true;
+  $("#profile-name").focus();
+});
 $("#suggestions").addEventListener("change", updateAddButton);
 $("#author").addEventListener("input", () => {
   searchVersion++;
@@ -227,6 +234,7 @@ async function load() {
   }
   await renderInvitation();
   if (!session.user) return;
+  updateAddButton();
   await loadLabs();
   $("#profile-name").value = session.researcher?.name || "";
   $("#profile-institution").value = session.researcher?.institution || "";
