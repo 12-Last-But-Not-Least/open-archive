@@ -53,6 +53,51 @@ def login(client, network, handle="bhackel.bsky.social"):
     client.app.state.database.put("suggestions:" + key, {PAPER["id"]: copy.deepcopy(PAPER)})
 
 
+def test_institution_search_uses_manual_fallback_when_unavailable(setup, monkeypatch):
+    client, _, network, _ = setup
+    calls = []
+
+    async def suggestions(query):
+        calls.append(query)
+        if query == "Outage":
+            raise httpx.ConnectError("Service unavailable")
+        return ["University of California San Diego"]
+
+    monkeypatch.setattr("backend.app.search_institutions", suggestions)
+    path = "/api/institutions/search"
+    assert client.post(path, json={"query": "UC San D"}, headers=headers(client)).status_code == 401
+    login(client, network)
+    result = client.post(path, json={"query": " UC  San D "}, headers=headers(client))
+    assert result.json() == {"institutions": ["University of California San Diego"]}
+    assert client.post(path, json={"query": "abc@example.test"}, headers=headers(client)).json() == {"institutions": []}
+    assert client.post(path, json={"query": "x" * 81}, headers=headers(client)).status_code == 422
+    response = client.post(path, json={"query": "Outage"}, headers=headers(client))
+    assert response.status_code == 503
+    assert "type the name yourself" in response.json()["detail"]
+    assert calls == ["UC San D", "Outage"]
+
+
+def test_institution_lookup_returns_deduped_ror_display_names(monkeypatch):
+    from backend import institutions
+
+    def handle(request):
+        assert request.url.host == "api.ror.org"
+        assert request.url.path == "/v2/organizations"
+        assert request.url.params["query"] == '"UC" AND San\\+D*'
+        assert "cookie" not in request.headers
+        return httpx.Response(200, json={"items": [
+            {"names": [{"types": ["alias"], "value": "UCSD"},
+                       {"types": ["ror_display"], "value": "University of California San Diego"}]},
+            {"names": [{"types": ["ror_display"], "value": "University of California San Diego"}]},
+            {"names": [{"types": ["ror_display"], "value": None}]},
+        ]})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(institutions.httpx, "AsyncClient",
+                        lambda **kwargs: real_client(transport=httpx.MockTransport(handle), **kwargs))
+    assert asyncio.run(institutions.search_institutions("UC San+D")) == ["University of California San Diego"]
+
+
 def test_real_login_adapter_has_minimal_publication_permissions(tmp_path):
     from backend.oauth import make_client
     client = make_client(Database(tmp_path), "browser", ORIGIN)

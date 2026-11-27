@@ -8,6 +8,7 @@ function account() {
   function element() {
     return {value: "", children: [], listeners: {},
       setAttribute(name, value) {this[name] = value;},
+      removeAttribute(name) { delete this[name]; },
       showModal() {this.open = true;},
       addEventListener(type, fn) { this.listeners[type] = fn; },
       replaceChildren(...children) { this.children = children; },
