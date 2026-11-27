@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+import httpx
 import uvicorn
 from fastapi import FastAPI
 from tests.support import FakeOAuth, PAPER
@@ -44,10 +45,21 @@ async def public_profile(url, **kwargs):
     return {"value": {}}
 
 
+async def institution_suggestions(query):
+    if query == "UC San D":
+        return ["University of California San Diego"]
+    if query == "Example Univ":
+        return ["Example University"]
+    if query == "Updated University":
+        raise httpx.ConnectError("Test service outage")
+    return []
+
+
 if __name__ == "__main__":
     subprocess.run([sys.executable, "scripts/build.py", "--with-account"], cwd=ROOT, check=True)
     backend.search_crossref = backend.search_openalex = backend.search_datacite = no_results
     backend.get_json = public_profile
+    backend.search_institutions = institution_suggestions
     with TemporaryDirectory(prefix="open-archive-mvp-") as directory:
         app = FastAPI()
 
