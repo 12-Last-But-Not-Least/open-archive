@@ -50,3 +50,13 @@ body[data-kind="labs"] #directory-list { overflow-wrap: anywhere; }
 .invitation-steps {display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; padding-left: 1.5rem; margin: 1rem 0;}
 .invitation-steps li {padding-right: 0.5rem;}
 .invitation-steps [aria-current="step"] {color: #1e40af;}
+
+
+.institution-field { margin: 8px 0; }
+.institution-field input { max-width: 100%; box-sizing: border-box; }
+.institution-field .note { margin: 4px 0; }
+.institution-field [role="status"]:empty { margin: 0; }
+.institution-picker { position: relative; }
+.institution-options { position: absolute; z-index: 1; width: min(100%, 36rem); box-sizing: border-box; background: #fff; list-style: none; margin: 4px 0; padding: 0; border: 1px solid; max-height: 12rem; overflow: auto; }
+.institution-options > li { padding: 10px 8px; cursor: pointer; overflow-wrap: anywhere; }
+.institution-options > li:hover, .institution-options > li[aria-selected="true"] { color: #fff; background: #000; }
