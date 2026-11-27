@@ -75,6 +75,10 @@ test('two researchers create a lab, join, publish and update its public page', a
     await expect(member.locator('#lab-invitation')).toBeHidden();
     await member.getByRole('button', {name: 'Find papers', exact: true}).click();
     await expect(member.locator('#suggestions')).toContainText('Shared lab research');
+    // A matching name alone never selects a paper, the member must select it
+    await expect(member.locator('input[name="paper"]')).not.toBeChecked();
+    await expect(member.getByRole('button', {name: 'Add selected papers', exact: true})).toBeDisabled();
+    await member.locator('input[name="paper"]').check();
     await member.getByRole('button', {name: 'Add selected papers', exact: true}).click();
     await expect(member.locator('#own-papers')).toContainText('Shared lab research');
     const profileURL = await member.locator('#profile a').getAttribute('href');

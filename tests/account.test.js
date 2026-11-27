@@ -75,14 +75,14 @@ test("an empty search removes old papers", async () => {
   assert.equal(ui.get("#suggestions").children[0].textContent, "No papers found.");
 });
 
-test("only an exact full author name is preselected", async () => {
+test("papers are never preselected, even when the author name matches exactly", async () => {
   const ui = account();
   ui.run('session.researcher = {name: "Soham Phadke"}; api = async () => ({papers: [{id: "exact", title: "Exact", authors: ["SOHAM  PHADKE"]}, {id: "partial", title: "Partial", authors: ["Soham"]}]});');
   ui.get("#author").value = "Soham Phadke";
   search(ui);
   await settle();
   const checked = ui.get("#suggestions").children.map(row => row.children[0].children[0].checked);
-  assert.deepEqual(checked, [true, false]);
+  assert.deepEqual(checked, [false, false]);
 });
 
 test("DOI lookup previews a paper using the linked name without publishing", async () => {
@@ -93,7 +93,7 @@ test("DOI lookup previews a paper using the linked name without publishing", asy
   await settle();
   assert.equal(ui.run("requests.length"), 1);
   assert.equal(ui.run("requests[0].path"), "/api/papers/search");
-  assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, true);
+  assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, false, "a name match alone is not a claim");
 });
 
 test("DOI preview stays unchecked when no researcher name is linked", async () => {
@@ -119,24 +119,46 @@ test("search shows publication year without manual lab tagging", async () => {
 });
 
 
-test("partial-name search offers the full author name, saves it, selects matching papers and bolds it", async () => {
+test("partial-name search offers the full author name with paper context, saves the chosen slot and selects nothing", async () => {
   const ui = account();
   ui.run('var calls = []; api = async (path, method, body) => { calls.push({path, body}); if (path === "/api/my-labs") return {labs: []}; if (path === "/api/profile/author") return {researcher: {id: "soham", name: "Soham Phadke"}}; return {papers: [{id: "paper", title: "Kidney paper", authors: ["Alex Whelan", "Soham Phadke"]}]}; };');
   ui.get("#author").value = "Soham";
   search(ui);
   await settle();
   assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, false);
-  const choice = ui.get("#author-choices").children[1];
+  const option = ui.get("#author-choices").children[1];
+  const choice = option.children[0];
   assert.equal(choice.textContent, "Soham Phadke");
+  assert.equal(option.children[1].textContent, "“Kidney paper” · with Alex Whelan");
   choice.listeners.click();
   await settle();
   assert.equal(ui.get("#author").value, "Soham Phadke");
   assert.equal(ui.run('session.researcher.name'), "Soham Phadke");
-  assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, true);
+  assert.equal(ui.get("#suggestions").children[0].children[0].children[0].checked, false);
   const authorNodes = ui.get("#suggestions").children[0].children[1].children;
   assert.equal(authorNodes[2].textContent, "Soham Phadke");
   assert.equal(ui.run('calls[1].path'), "/api/profile/author");
-  assert.equal(ui.run('calls[1].body.paperId'), "paper");
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.run('calls[1].body'))), {paperId: "paper", name: "Soham Phadke", index: 1});
+});
+
+test("people sharing a name stay separate choices with affiliation and coauthors, and nothing is selected for import", async () => {
+  const ui = account();
+  const papers = [
+    {id: "doi:1", title: "Kidney imaging", publishedAt: "2024-05-01T00:00:00Z", authors: ["Alex Whelan", "Wei Zhang"],
+      authorDetails: [{name: "Alex Whelan", affiliation: ""}, {name: "Wei Zhang", affiliation: "UC San Diego"}]},
+    {id: "doi:2", title: "Graph databases", publishedAt: "2021-02-01T00:00:00Z", authors: ["Wei Zhang", "Priya Rao"],
+      authorDetails: [{name: "Wei Zhang", affiliation: "MIT"}, {name: "Priya Rao", affiliation: ""}]}];
+  ui.run("var papers = " + JSON.stringify(papers) + '; var calls = []; api = async (path, method, body) => { calls.push({path, body}); return {papers}; };');
+  ui.get("#author").value = "Wei Zhang";
+  search(ui);
+  await settle();
+  const options = ui.get("#author-choices").children.slice(1).filter(option => option.children[0].textContent === "Wei Zhang");
+  assert.deepEqual(options.map(option => option.children[1].textContent), [
+    "“Kidney imaging” (2024) · UC San Diego · with Alex Whelan", "“Graph databases” (2021) · MIT · with Priya Rao"]);
+  const rows = ui.get("#suggestions").children;
+  assert.equal(rows[0].children[2].textContent, "Affiliations: Wei Zhang — UC San Diego");
+  assert.deepEqual(rows.map(row => row.children[0].children[0].checked), [false, false]);
+  assert.equal(ui.get("#add").disabled, true, "nothing can be added until a paper is explicitly ticked");
 });
 
 

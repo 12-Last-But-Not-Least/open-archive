@@ -6,7 +6,8 @@ export const researcher = {id: 'bryce-hackel', name: 'Bryce Hackel', did: 'did:p
 export const lab = {id: 'ucsd-arc', name: 'Advanced Robotics and Controls Lab', institution: researcher.institution,
   members: [researcher.id], about: 'Robotics, haptics, and human interaction.', contactEmail: 'lab@example.test'};
 export const paper = {id: 'sample-paper', rkey: 'sample-paper', title: 'A reproducible study of robotic touch',
-  authors: [researcher.name, 'Alex Example'], publishedAt: '2025-01-15T00:00:00Z',
+  authors: [researcher.name, 'Alex Example'],
+  authorDetails: [{name: researcher.name, affiliation: researcher.institution}, {name: 'Alex Example', affiliation: ''}], publishedAt: '2025-01-15T00:00:00Z',
   abstract: 'A fixed example abstract for reviewing publication layouts across screen sizes.',
   url: 'https://example.test/paper', doi: '10.1234/example', researcherIds: [researcher.id], labIds: [lab.id]};
 
@@ -52,7 +53,7 @@ export const test = base.extend({
           {name: 'Alex Example', did: 'did:example:alex', role: 'member'}]}] : []});
       if (p === '/api/suggestions') return json({papers: []});
       if (p === '/api/publications') return json({papers: state.profile ? [paper] : []});
-      if (p === '/api/papers/search') return json({papers: [paper], authors: [{name: researcher.name, paperId: paper.id}]});
+      if (p === '/api/papers/search') return json({papers: [paper]});
       if (p === '/api/profile' && route.request().method() === 'PUT') { state.profile = true; state.researcher = {...researcher, ...route.request().postDataJSON()}; return json({researcher: state.researcher}); }
       if (p === '/api/profile/author') { state.profile = true; return json({researcher}); }
       if (p === '/api/lab-invites/preview-token') return state.invalidInvite

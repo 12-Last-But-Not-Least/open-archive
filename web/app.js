@@ -177,14 +177,35 @@ function renderProfile(config, page, id, root, apiRoot) {
     }
     const members = config.researchers.filter(researcher => (entry.members || []).includes(researcher.id));
     document.querySelector("#members-heading").textContent = "Researchers (" + members.length + ")";
+    const sharedMembers = sharedNames(members);
     document.querySelector("#lab-members").replaceChildren(...members.map(member => {
       const row = element("div", null, "directory-item");
       const heading = element("h3");
       heading.append(profileLink(member, "researchers"));
-      row.append(heading, element("p", member.institution || ""));
+      row.append(heading, element("p", entryDetail(member, sharedMembers)));
       return row;
     }));
   }
+}
+
+function normalizeName(value) {
+  return typeof value === "string" ? value.normalize("NFC").toLowerCase().split(/\s+/).filter(Boolean).join(" ") : "";
+}
+
+// Names used by more than one entry in a list - those entries also show the account handle
+function sharedNames(entries) {
+  const seen = new Set(), shared = new Set();
+  for (const entry of entries) {
+    const name = normalizeName(entry.name);
+    (seen.has(name) ? shared : seen).add(name);
+  }
+  return shared;
+}
+
+function entryDetail(entry, shared) {
+  const parts = [entry.institution || ""];
+  if (shared.has(normalizeName(entry.name)) && entry.handle) parts.push("@" + entry.handle);
+  return parts.filter(Boolean).join(" · ");
 }
 
 async function startDirectory() {
@@ -194,13 +215,14 @@ async function startDirectory() {
   try {
     const config = await getJSON(apiRoot ? apiRoot + "/data/site.json" : root + "data/site.json");
     target.replaceChildren();
+    const shared = sharedNames(config[kind]);
     for (const item of config[kind]) {
       const row = element("div", null, "directory-item");
       const heading = element("h3");
       const anchor = element("a", item.name);
       anchor.href = (apiRoot ? apiRoot + "/" : root) + kind + "/" + encodeURIComponent(item.id) + "/";
       heading.append(anchor);
-      row.append(heading, element("p", item.institution || ""));
+      row.append(heading, element("p", entryDetail(item, shared)));
       target.append(row);
     }
     status.textContent = config[kind].length ? "" : "No " + kind + " added yet.";
