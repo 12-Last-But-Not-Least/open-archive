@@ -28,6 +28,23 @@ ROOT = Path(__file__).resolve().parents[1]
 COOKIE = "open_archive_session"
 
 
+def shared_names(entries):
+    """Normalized names used by more than one entry in the same list."""
+    seen, shared = set(), set()
+    for entry in entries:
+        name = normalized_name(entry.get("name"))
+        (shared if name in seen else seen).add(name)
+    return shared
+
+
+def entry_detail(entry, shared):
+    """Institution, plus the account handle when another listed entry has the same name."""
+    parts = [entry.get("institution", "")]
+    if normalized_name(entry.get("name")) in shared and entry.get("handle"):
+        parts.append("@" + entry["handle"])
+    return " · ".join(part for part in parts if part)
+
+
 class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -60,6 +77,7 @@ class OrcidChoice(Input):
 class AuthorChoice(Input):
     paperId: str = Field(min_length=1, max_length=500)
     name: str = Field(min_length=1, max_length=120)
+    index: int = Field(ge=0, lt=1000)
 
 
 class LabProfile(Input):
@@ -304,9 +322,11 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
         paper = (database.get("suggestions:" + key) or {}).get(payload.paperId)
         if not paper:
             raise HTTPException(400, "Search again to choose your author name.")
-        name = next((name for name in paper.get("authors", []) if normalized_name(name) == normalized_name(payload.name)), None)
-        if not name:
+        # The claim is a specific author slot on a specific paper, not a basic name match
+        authors = paper.get("authors", [])
+        if payload.index >= len(authors) or normalized_name(authors[payload.index]) != normalized_name(payload.name):
             raise HTTPException(400, "Choose an author from the search results.")
+        name = authors[payload.index]
         current = researcher_for(session.did)
         identifier = current["id"] if current else "researcher-" + hashlib.sha256(session.did.encode()).hexdigest()[:16]
         profile = {"institution": "", **(current or {}), "id": identifier,
@@ -404,8 +424,12 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
         for lab in directory["labs"]:
             if lab["id"] not in roles:
                 continue
-            members = [{"did": m["did"], "role": m["role"], "name": people.get(m["did"], {}).get("name", m["did"])}
+            members = [{"did": m["did"], "role": m["role"], "name": people.get(m["did"], {}).get("name", m["did"]),
+                        "handle": people.get(m["did"], {}).get("handle", "")}
                        for m in memberships if m["lab_id"] == lab["id"]]
+            shared = shared_names(members)
+            for member in members:
+                member["detail"] = "@" + member["handle"] if member["handle"] and normalized_name(member["name"]) in shared else ""
             labs.append({**lab, "role": roles[lab["id"]], "people": members})
         return {"labs": labs}
 
@@ -478,7 +502,7 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
             except Exception:
                 raise HTTPException(502, "ORCID search is unavailable. Try again later.") from None
             remember_suggestions(key, papers)
-            return {"papers": [{**p, "id": paper_key(p)} for p in papers], "authors": [], "kind": "orcid", "warning": ""}
+            return {"papers": [{**p, "id": paper_key(p)} for p in papers], "kind": "orcid", "warning": ""}
         if query.lower().startswith(("10.", "doi:", "https://", "http://")):
             result = await doi_lookup(DoiLookup(doi=query), request)
             return {**result, "kind": "doi"}
@@ -494,12 +518,7 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
         papers = rank_papers(query, [paper for result in results if not isinstance(result, Exception) for paper in result], limit=200)
         remember_suggestions(key, papers)
         warning = "Some results are missing because " + " and ".join(dict.fromkeys(failures)) + " could not be reached. Try again." if failures else ""
-        authors = {}
-        for paper in papers:
-            for name in paper.get("authors", []):
-                if isinstance(name, str) and 0 < len(name) <= 120:
-                    authors.setdefault(normalized_name(name), {"name": name, "paperId": paper_key(paper)})
-        return {"papers": [{**p, "id": paper_key(p)} for p in papers[:20]], "authors": list(authors.values()), "kind": "text", "warning": warning}
+        return {"papers": [{**p, "id": paper_key(p)} for p in papers[:20]], "kind": "text", "warning": warning}
 
     @app.post("/api/doi/lookup")
     async def doi_lookup(payload: DoiLookup, request: Request):
@@ -615,8 +634,9 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
         return HTMLResponse(html.replace("/assets/app.js", "/assets/app.js?v=" + version), headers={"Cache-Control": "no-store"})
 
     def directory_html(entries, kind):
+        shared = shared_names(entries)
         return "".join('<div class="directory-item"><h3><a href="/' + kind + '/' + escape(entry["id"], quote=True) +
-                       '/">' + escape(entry["name"]) + '</a></h3><p>' + escape(entry.get("institution", "")) + '</p></div>' for entry in entries)
+                       '/">' + escape(entry["name"]) + '</a></h3><p>' + escape(entry_detail(entry, shared)) + '</p></div>' for entry in entries)
 
     @app.get("/researchers/")
     @app.get("/labs/")

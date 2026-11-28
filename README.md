@@ -34,7 +34,7 @@ The MVP is a public lab page assembled from its members' publication profiles:
 1. Sign in with Bluesky and save a researcher profile (no paper required).
 2. Create a lab with its institution and description. The creator becomes its owner and first member.
 3. Generate an invitation link in Your labs. Open it in another browser profile, sign in as a different researcher, create their profile and click Join lab.
-4. Search for a paper in the member account and add it. Open the public researcher and lab pages while signed out; both should show it.
+4. Search for a paper in the member account and tick it to add it. Nothing is preselected by name, and results show coauthors and affiliations so same-name authors can pick their own papers. Same-name researchers are told apart by handle. Open the public researcher and lab pages while signed out; both should show it.
 5. Reload the pages to verify saved data. When a member leaves, their papers leave the lab feed but remain on their own profile.
 
 Public pages update on opening or Refresh. Collaborator matching, custom site themes, AI features and comprehensive cross-source paper deduplication are outside this MVP.

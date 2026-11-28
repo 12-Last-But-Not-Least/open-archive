@@ -46,13 +46,27 @@ def normalize_orcid(value):
     return "-".join(digits[i:i + 4] for i in range(0, 16, 4))
 
 
+def join_affiliations(values):
+    """One display string from affiliation entries given as strings or {"name": ...} objects."""
+    names = []
+    for value in values or []:
+        name = value.get("name") if isinstance(value, dict) else value
+        name = " ".join(name.split()) if isinstance(name, str) else ""
+        if name and name not in names:
+            names.append(name)
+    return "; ".join(names)[:200]
+
+
 def parse_crossref(data, doi):
     if normalize_doi(data.get("DOI", "")) != doi:
         raise ValueError("The metadata returned a different DOI.")
     titles = data.get("title") or []
-    authors = [a.get("name") or " ".join(filter(None, [a.get("given"), a.get("family")]))
-               for a in data.get("author", [])]
-    authors = [name for name in authors if name.strip()]
+    details = []
+    for a in data.get("author", []):
+        name = a.get("name") or " ".join(filter(None, [a.get("given"), a.get("family")]))
+        if name.strip():
+            details.append({"name": name, "affiliation": join_affiliations(a.get("affiliation"))})
+    authors = [detail["name"] for detail in details]
     dates = (data.get("published") or data.get("issued") or {}).get("date-parts", [])
     if not titles or not titles[0].strip() or not authors or not dates or not dates[0]:
         raise ValueError("This DOI is missing a title, authors, or publication date in Crossref.")
@@ -60,7 +74,8 @@ def parse_crossref(data, doi):
     published = datetime(parts[0], parts[1] if len(parts) > 1 else 1,
                          parts[2] if len(parts) > 2 else 1, tzinfo=timezone.utc)
     return {"id": "doi:" + doi, "doi": doi, "title": " ".join(titles[0].split()),
-            "authors": authors, "publishedAt": published.isoformat().replace("+00:00", "Z"),
+            "authors": authors, "authorDetails": details,
+            "publishedAt": published.isoformat().replace("+00:00", "Z"),
             "url": "https://doi.org/" + quote(doi, safe="/():;"),
             "venue": (data.get("container-title") or [""])[0], "labIds": [], "source": "crossref"}
 
@@ -98,7 +113,11 @@ async def search_crossref(query, field):
         return papers
 
 
-def metadata_paper(title, authors, date, url, source, doi="", venue=""):
+def metadata_paper(title, authors, date, url, source, doi="", venue="", details=None):
+    """Validated paper dict shared by the OpenAlex and DataCite parsers.
+
+    `details` is an optional per-author list of {"name", "affiliation"} aligned with `authors`.
+    """
     if not isinstance(title, str) or not title.strip() or not authors:
         raise ValueError("Missing title or authors")
     parsed = urlparse(url or "")
@@ -108,6 +127,8 @@ def metadata_paper(title, authors, date, url, source, doi="", venue=""):
     paper = {"title": " ".join(title.split()), "authors": authors,
              "publishedAt": published.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
              "url": url, "source": source, "labIds": [], "venue": venue}
+    if details:
+        paper["authorDetails"] = details
     if doi:
         paper["doi"] = normalize_doi(doi)
     if parsed.hostname in {"arxiv.org", "www.arxiv.org"} and parsed.path.startswith("/abs/"):
@@ -119,14 +140,19 @@ def metadata_paper(title, authors, date, url, source, doi="", venue=""):
 
 
 def parse_openalex(item):
-    authors = [a.get("author", {}).get("display_name", "").strip() for a in item.get("authorships", [])]
-    authors = [name for name in authors if name]
+    details = []
+    for a in item.get("authorships", []):
+        name = a.get("author", {}).get("display_name", "").strip()
+        if name:
+            institutions = [i.get("display_name") for i in a.get("institutions") or [] if isinstance(i, dict)]
+            details.append({"name": name, "affiliation": join_affiliations(institutions or a.get("raw_affiliation_strings"))})
+    authors = [detail["name"] for detail in details]
     location = item.get("primary_location") or {}
     url = location.get("landing_page_url") or item.get("doi") or item.get("id")
     if not url or not url.startswith("https://"):
         url = item.get("doi") or item.get("id")
     return metadata_paper(item.get("title"), authors, item.get("publication_date", ""), url,
-                          "openalex", item.get("doi") or "", (location.get("source") or {}).get("display_name", ""))
+                          "openalex", item.get("doi") or "", (location.get("source") or {}).get("display_name", ""), details)
 
 
 def openalex_headers():
@@ -179,17 +205,18 @@ def parse_datacite(item):
         "Text", "JournalArticle", "ConferencePaper", "ConferenceProceeding", "Preprint", "Dissertation", "Report", "Book", "BookChapter"}:
         raise ValueError("Not a written research work")
     doi = normalize_doi(data["doi"])
-    authors = []
+    details = []
     for creator in data.get("creators", []):
         name = " ".join(filter(None, [creator.get("givenName"), creator.get("familyName")])) or creator.get("name", "")
         if "," in name and not creator.get("givenName") and creator.get("nameType") != "Organizational":
             family, given = name.split(",", 1)
             name = given.strip() + " " + family.strip()
         if name.strip():
-            authors.append(name.strip())
+            details.append({"name": name.strip(), "affiliation": join_affiliations(creator.get("affiliation"))})
+    authors = [detail["name"] for detail in details]
     year = int(data["publicationYear"])
     return metadata_paper(data["titles"][0]["title"], authors, f"{year:04d}-01-01",
-                          "https://doi.org/" + quote(doi, safe="/():;"), "datacite", doi)
+                          "https://doi.org/" + quote(doi, safe="/():;"), "datacite", doi, details=details)
 
 
 async def search_datacite(query):
@@ -216,7 +243,10 @@ def rank_papers(query, papers, limit=20):
     def exact(paper):
         return any(" ".join(value.casefold().split()) == " ".join(query.casefold().split()) for value in fields(paper))
     ranked, seen = [], set()
-    for paper in sorted(papers, key=lambda p: not exact(p)):
+    def has_affiliation(paper):
+        return any(detail.get("affiliation") for detail in paper.get("authorDetails", []))
+    # Prefer the exact match, then the copy of a duplicate that carries author affiliations
+    for paper in sorted(papers, key=lambda p: (not exact(p), not has_affiliation(p))):
         if not tokens or not any(tokens <= set(re.findall(r"\w+", value.casefold())) for value in fields(paper)):
             continue
         identifiers = paper_keys(paper)
@@ -302,10 +332,13 @@ def parse_arxiv(xml):
         identifier = re.sub(r"v\d+$", "", entry.findtext("a:id", "", ATOM).split("/abs/")[-1])
         if not re.fullmatch(r"(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})", identifier):
             raise ValueError("arXiv returned an invalid result")
+        details = [{"name": author.findtext("a:name", "", ATOM),
+                    "affiliation": join_affiliations([a.text for a in author.findall("arxiv:affiliation", ATOM)])}
+                   for author in entry.findall("a:author", ATOM)]
         papers.append({
             "id": "arxiv:" + identifier, "arxivId": identifier,
             "title": " ".join(entry.findtext("a:title", "", ATOM).split()),
-            "authors": [author.findtext("a:name", "", ATOM) for author in entry.findall("a:author", ATOM)],
+            "authors": [detail["name"] for detail in details], "authorDetails": details,
             "publishedAt": entry.findtext("a:published", "", ATOM),
             "abstract": " ".join(entry.findtext("a:summary", "", ATOM).split()),
             "doi": entry.findtext("arxiv:doi", "", ATOM),

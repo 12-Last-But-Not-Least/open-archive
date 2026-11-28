@@ -437,9 +437,9 @@ def test_search_author_choice_creates_profile_without_manual_save(setup, monkeyp
     assert all(r.get("did") != OTHER for r in client.get("/data/site.json").json()["researchers"])
     response = client.post("/api/arxiv/search", json={"author": "Soham"}, headers=headers(client))
     paper = response.json()["papers"][0]
-    rejected = client.post("/api/profile/author", json={"paperId": paper["id"], "name": "Invented Name"}, headers=headers(client))
+    rejected = client.post("/api/profile/author", json={"paperId": paper["id"], "name": "Invented Name", "index": 1}, headers=headers(client))
     assert rejected.status_code == 400
-    response = client.post("/api/profile/author", json={"paperId": paper["id"], "name": "Soham Phadke"}, headers=headers(client))
+    response = client.post("/api/profile/author", json={"paperId": paper["id"], "name": "Soham Phadke", "index": 1}, headers=headers(client))
     assert response.status_code == 200
     researcher = response.json()["researcher"]
     assert researcher["name"] == "Soham Phadke" and researcher["did"] == OTHER
@@ -475,7 +475,7 @@ def test_remove_own_profile_preserves_other_accounts_and_pds_records(setup):
     assert not any(request[2].endswith("deleteRecord") for request in network["requests"])
     assert client.get("/api/publications").status_code == 200
     paper = client.post("/api/arxiv/search", json={"author": "Bryce"}, headers=headers(client)).json()["papers"][0]
-    chosen = client.post("/api/profile/author", json={"name": "Bryce Hackel", "paperId": paper["id"]}, headers=headers(client))
+    chosen = client.post("/api/profile/author", json={"name": "Bryce Hackel", "paperId": paper["id"], "index": 0}, headers=headers(client))
     assert chosen.status_code == 200
     assert chosen.json()["researcher"]["did"] == OTHER
 
@@ -740,3 +740,94 @@ def test_edit_lab_details_permissions_and_persistence(setup):
         assert set(saved["members"]) == {"bryce-hackel", profile["id"]}
         assert fresh.get(public_path).status_code == 200
         assert fresh.get("/api/lab-invites/" + token).json()["lab"]["id"] == lab["id"]
+
+
+def test_same_name_researchers_are_distinguished_by_handle_in_directory(tmp_path):
+    from backend.app import entry_detail, shared_names
+
+    entries = [{"name": "Wei Zhang", "institution": "UCSD", "handle": "a.bsky.social"},
+               {"name": "wei  zhang", "institution": "", "handle": "b.bsky.social"},
+               {"name": "Sam Lee", "institution": "MIT", "handle": "c.bsky.social"}]
+    shared = shared_names(entries)
+    assert [entry_detail(entry, shared) for entry in entries] == ["UCSD · @a.bsky.social", "@b.bsky.social", "MIT"]
+
+
+def same_name_papers():
+    common = {key: value for key, value in PAPER.items() if key not in ("arxivId", "researcherIds")}
+    return [
+        {**common, "id": "doi:10.1/ucsd", "doi": "10.1/ucsd", "title": "Kidney imaging", "url": "https://doi.org/10.1/ucsd",
+         "authors": ["Alex Whelan", "Wei Zhang"], "publishedAt": "2024-05-01T00:00:00Z",
+         "authorDetails": [{"name": "Alex Whelan", "affiliation": ""}, {"name": "Wei Zhang", "affiliation": "UC San Diego"}]},
+        {**common, "id": "doi:10.1/mit", "doi": "10.1/mit", "title": "Graph databases", "url": "https://doi.org/10.1/mit",
+         "authors": ["Wei Zhang", "Priya Rao"], "publishedAt": "2021-02-01T00:00:00Z",
+         "authorDetails": [{"name": "Wei Zhang", "affiliation": "MIT"}, {"name": "Priya Rao", "affiliation": ""}]},
+    ]
+
+
+def test_same_name_authors_keep_their_own_context_and_need_an_explicit_claim(setup, monkeypatch):
+    client, _, network, searcher = setup
+    async def results(query):
+        return same_name_papers()
+    async def empty(*args):
+        return []
+    monkeypatch.setattr(searcher, "search_all", results, raising=False)
+    monkeypatch.setattr("backend.app.search_crossref", empty)
+    login(client, network, "wei.bsky.social")
+    data = client.post("/api/papers/search", json={"query": "Wei Zhang"}, headers=headers(client)).json()
+    assert [(p["id"], p["authors"], [d["affiliation"] for d in p["authorDetails"]]) for p in data["papers"]] == [
+        ("doi:10.1/ucsd", ["Alex Whelan", "Wei Zhang"], ["", "UC San Diego"]),
+        ("doi:10.1/mit", ["Wei Zhang", "Priya Rao"], ["MIT", ""])]
+    # A matching name on a different slot, or a wrong slot, is not a claim.
+    for body in ({"paperId": "doi:10.1/ucsd", "name": "Wei Zhang", "index": 0},
+                 {"paperId": "doi:10.1/ucsd", "name": "Wei Zhang", "index": 5},
+                 {"paperId": "doi:10.1/mit", "name": "Alex Whelan", "index": 0}):
+        assert client.post("/api/profile/author", json=body, headers=headers(client)).status_code == 400
+    assert client.get("/api/session").json()["researcher"] is None
+    chosen = client.post("/api/profile/author", json={"paperId": "doi:10.1/mit", "name": "Wei Zhang", "index": 0}, headers=headers(client))
+    assert chosen.status_code == 200 and chosen.json()["researcher"]["did"] == OTHER
+
+
+def test_two_accounts_with_the_same_name_stay_separate_researchers(setup, monkeypatch):
+    client, app, network, searcher = setup
+    async def results(query):
+        return same_name_papers()
+    async def empty(*args):
+        return []
+    monkeypatch.setattr(searcher, "search_all", results, raising=False)
+    monkeypatch.setattr("backend.app.search_crossref", empty)
+    login(client, network, "wei.bsky.social")
+    client.post("/api/papers/search", json={"query": "Wei Zhang"}, headers=headers(client))
+    first = client.post("/api/profile/author", json={"paperId": "doi:10.1/ucsd", "name": "Wei Zhang", "index": 1}, headers=headers(client)).json()["researcher"]
+    app.state.database.save_directory_entry("researchers", "other-wei", DID + "-2", {
+        "id": "other-wei", "name": "wei  zhang", "did": DID + "-2", "handle": "wei2.bsky.social", "institution": ""})
+    directory = client.get("/data/site.json").json()["researchers"]
+    assert {r["id"] for r in directory if normalized_name(r["name"]) == "wei zhang"} == {first["id"], "other-wei"}
+    assert "@wei.bsky.social" in client.get("/researchers/").text and "@wei2.bsky.social" in client.get("/researchers/").text
+
+
+def test_parsers_keep_author_affiliations():
+    from backend.papers import parse_datacite, parse_openalex
+    crossref = parse_crossref({"DOI": "10.1234/test", "title": ["T"], "published": {"date-parts": [[2024, 1, 2]]},
+        "author": [{"given": "Wei", "family": "Zhang", "affiliation": [{"name": "UCSD"}, {"name": "UCSD"}, {"name": "Salk"}]},
+                   {"given": "Al", "family": "B", "affiliation": []}]}, "10.1234/test")
+    assert crossref["authorDetails"] == [{"name": "Wei Zhang", "affiliation": "UCSD; Salk"}, {"name": "Al B", "affiliation": ""}]
+    openalex = parse_openalex({"id": "https://openalex.org/W1", "title": "T", "publication_date": "2024-01-02",
+        "doi": "https://doi.org/10.1234/x", "authorships": [
+            {"author": {"display_name": "Wei Zhang"}, "institutions": [{"display_name": "MIT"}]},
+            {"author": {"display_name": "Al B"}, "institutions": [], "raw_affiliation_strings": ["Somewhere Lab"]}]})
+    assert [d["affiliation"] for d in openalex["authorDetails"]] == ["MIT", "Somewhere Lab"]
+    datacite = parse_datacite({"attributes": {"doi": "10.1234/p", "titles": [{"title": "T"}], "publicationYear": 2024,
+        "types": {"resourceTypeGeneral": "Text"}, "creators": [
+            {"name": "Zhang, Wei", "affiliation": ["Stanford"]}, {"name": "Al B", "affiliation": [{"name": "CMU"}]}]}})
+    assert [(d["name"], d["affiliation"]) for d in datacite["authorDetails"]] == [("Wei Zhang", "Stanford"), ("Al B", "CMU")]
+    xml = """<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom"><entry>
+      <id>http://arxiv.org/abs/2401.00001v1</id><title>T</title><summary>S</summary><published>2024-01-02T00:00:00Z</published>
+      <author><name>Wei Zhang</name><arxiv:affiliation>Caltech</arxiv:affiliation></author><author><name>Al B</name></author></entry></feed>"""
+    assert [d["affiliation"] for d in parse_arxiv(xml)[0]["authorDetails"]] == ["Caltech", ""]
+
+
+def test_duplicate_papers_prefer_the_copy_with_affiliations():
+    from backend.papers import rank_papers
+    bare = {"title": "T", "authors": ["Wei Zhang"], "doi": "10.1/x", "url": "https://doi.org/10.1/x"}
+    rich = {**bare, "authorDetails": [{"name": "Wei Zhang", "affiliation": "MIT"}]}
+    assert rank_papers("Wei Zhang", [bare, rich])[0] is rich

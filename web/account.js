@@ -46,26 +46,41 @@ function showOrcid() {
   $("#orcid-search").hidden = !session?.researcher?.orcid;
 }
 
-let choosingAuthor = false, authorChoices = [];
+let choosingAuthor = false;
+
+function candidate(paper, index) {
+  const others = paper.authors.filter((_, other) => other !== index);
+  return {name: paper.authors[index], paperId: paper.id, index, title: paper.title, publishedAt: paper.publishedAt,
+    affiliation: (paper.authorDetails || [])[index]?.affiliation || "", coauthors: others.slice(0, 4), coauthorCount: others.length};
+}
+
+function describeCandidate(choice) {
+  const year = new Date(choice.publishedAt).getUTCFullYear();
+  const parts = ["“" + (choice.title || "Untitled paper") + "”" + (Number.isFinite(year) ? " (" + year + ")" : "")];
+  if (choice.affiliation) parts.push(choice.affiliation);
+  if (choice.coauthorCount) {
+    const more = choice.coauthorCount - choice.coauthors.length;
+    parts.push("with " + choice.coauthors.join(", ") + (more > 0 ? " +" + more + " more" : ""));
+  }
+  return parts.join(" · ");
+}
+
 function renderAuthorChoices(query) {
   const target = $("#author-choices");
   target.replaceChildren();
-  const names = new Map();
-  for (const choice of authorChoices) names.set(normalizeName(choice.name), choice);
-  for (const paper of suggestions) {
-    for (const name of paper.authors || []) {
-      if (!names.has(normalizeName(name))) names.set(normalizeName(name), {name, paperId: paper.id});
-    }
-  }
-  if (!names.size) return;
-  target.append(node("p", "Choose your name"));
+  // One choice per author slot on a paper, so people who share a name are never merged
+  const choices = suggestions.flatMap(paper => (paper.authors || []).map((_, index) => candidate(paper, index)));
+  if (!choices.length) return;
+  target.append(node("p", "Choose your name. Different people can share a name, so pick the entry on a paper that is yours."));
   const tokens = normalizeName(query).match(/[\p{L}\p{N}]+/gu) || [];
   const matches = choice => tokens.length && tokens.every(token => normalizeName(choice.name).includes(token));
-  const choices = [...names.values()].sort((a, b) => Number(matches(b)) - Number(matches(a)));
+  choices.sort((a, b) => Number(matches(b)) - Number(matches(a)));
   const hasMatches = choices.some(matches);
   const others = node("details");
   others.append(node("summary", "Other authors"));
   for (const choice of choices) {
+    const option = node("div");
+    option.className = "author-choice";
     const button = node("button", choice.name);
     button.type = "button";
     button.disabled = choosingAuthor;
@@ -78,7 +93,7 @@ function renderAuthorChoices(query) {
       renderAuthorChoices(query);
       run(button, async () => {
         try {
-          const data = await api("/api/profile/author", "POST", choice);
+          const data = await api("/api/profile/author", "POST", {paperId: choice.paperId, name: choice.name, index: choice.index});
           session.researcher = data.researcher;
           showOrcid();
           await renderInvitation();
@@ -96,7 +111,6 @@ function renderAuthorChoices(query) {
             if (version !== searchVersion) return;
             searchKind = results.kind;
             suggestions = results.papers;
-            authorChoices = results.authors || [];
             renderSuggestions();
             status(results.warning || "");
           } catch (error) {
@@ -114,8 +128,9 @@ function renderAuthorChoices(query) {
         }
       });
     });
-    if (!hasMatches || matches(choice)) target.append(button);
-    else others.append(button);
+    option.append(button, node("p", describeCandidate(choice)));
+    if (!hasMatches || matches(choice)) target.append(option);
+    else others.append(option);
   }
   if (hasMatches && choices.some(choice => !matches(choice))) target.append(others);
 }
@@ -135,9 +150,8 @@ function renderSuggestions() {
     checkbox.name = "paper";
     checkbox.value = paper.id;
     checkbox.disabled = added(paper) || !pdsLoaded;
-    // ORCID results are this researcher's own papers, so they start selected.
-    checkbox.checked = !checkbox.disabled && (searchKind === "orcid" || (Boolean(normalizeName(selectionName)) &&
-      (paper.authors || []).some(author => normalizeName(author) === normalizeName(selectionName))));
+    // ORCID results are this researcher's own papers, so they start selected; a matching name alone is not enough.
+    checkbox.checked = !checkbox.disabled && searchKind === "orcid";
     label.append(checkbox, document.createTextNode(" " + paper.title));
     const authors = node("p");
     (paper.authors || []).forEach((author, index) => {
@@ -145,6 +159,8 @@ function renderSuggestions() {
       authors.append(normalizeName(author) === normalizeName(selectionName) ? node("strong", author) : document.createTextNode(author));
     });
     row.append(label, authors);
+    const affiliated = (paper.authorDetails || []).filter(detail => detail.affiliation);
+    if (affiliated.length) row.append(node("p", "Affiliations: " + affiliated.map(detail => detail.name + " — " + detail.affiliation).join("; ")));
     const year = new Date(paper.publishedAt).getUTCFullYear();
     if (Number.isFinite(year)) row.append(node("p", "Published " + year));
     row.append(paperLink({...paper, title: "View paper"}));
@@ -163,7 +179,6 @@ $("#author").addEventListener("input", () => {
   searchVersion++;
   searchKind = "";
   suggestions = [];
-  authorChoices = [];
   $("#author-choices").replaceChildren();
   $("#suggestions").replaceChildren();
   updateAddButton();
@@ -287,7 +302,6 @@ $("#remove-profile").addEventListener("click", event => {
     await api("/api/profile", "DELETE");
     searchVersion++;
     selectionName = "";
-    authorChoices = [];
     suggestions = [];
     $("#author-choices").replaceChildren();
     await load();
@@ -305,7 +319,6 @@ $("#search").addEventListener("submit", event => {
   const author = $("#author").value.trim();
   selectionName = session.researcher?.name || "";
   suggestions = [];
-  authorChoices = [];
   $("#author-choices").replaceChildren();
   $("#suggestions").replaceChildren();
   updateAddButton();
@@ -322,7 +335,6 @@ $("#search").addEventListener("submit", event => {
     selectionName = session.researcher?.name || "";
     searchKind = data.kind;
     suggestions = data.papers;
-    authorChoices = data.authors || [];
     if (searchKind !== "orcid") renderAuthorChoices(author);
     renderSuggestions();
     if (!suggestions.length) $("#suggestions").replaceChildren(node("p", "No papers found."));
@@ -523,7 +535,7 @@ async function loadLabs() {
       }), invite);
     }
     for (const person of lab.people) {
-      const row = node("p", person.name + " (" + person.role + ") ");
+      const row = node("p", person.name + (person.detail ? " " + person.detail : "") + " (" + person.role + ") ");
       const change = async actionName => {
         await api("/api/labs/" + lab.id + "/members", "POST", {did: person.did, action: actionName});
         await loadLabs();
@@ -534,7 +546,7 @@ async function loadLabs() {
       const self = person.did === session.user.did;
       if (person.role !== "owner" && (self || lab.role === "owner" || (lab.role === "admin" && person.role === "member"))) {
         row.append(action(self ? "Leave lab" : "Remove member", async () => {
-          if (confirm(self ? "Leave " + lab.name + "?" : "Remove " + person.name + " from " + lab.name + "?")) await change("remove");
+          if (confirm(self ? "Leave " + lab.name + "?" : "Remove " + person.name + (person.detail ? " " + person.detail : "") + " from " + lab.name + "?")) await change("remove");
         }));
       }
       section.append(row);

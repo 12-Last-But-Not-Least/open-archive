@@ -57,3 +57,13 @@ test("lab page loads member papers automatically and does not read nonmembers", 
   assert.equal(ui.get("#publication-list").children[0].children[0].children[0].textContent, "Member paper");
   assert.equal(requests.some(url => url.includes(outside)), false);
 });
+
+test("directory shows the account handle only for researchers sharing a name", async () => {
+  const shared = {...config, researchers: [
+    {id: "a", name: "Wei Zhang", institution: "UCSD", handle: "a.bsky.social"},
+    {id: "b", name: "wei  zhang", institution: "", handle: "b.bsky.social"},
+    {id: "c", name: "Sam Lee", institution: "MIT", handle: "c.bsky.social"}]};
+  const ui = await page({page: "directory", kind: "researchers", root: "../"}, shared);
+  const details = ui.get("#directory-list").children.map(row => row.children[1].textContent);
+  assert.deepEqual(details, ["UCSD · @a.bsky.social", "@b.bsky.social", "MIT"]);
+});
