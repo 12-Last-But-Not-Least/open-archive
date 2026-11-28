@@ -48,7 +48,7 @@
         <summary>Create or edit your researcher profile</summary>
         <form id="profile-edit">
           <p><label for="profile-name">Your name</label> <input id="profile-name" required minlength="2" maxlength="120"></p>
-          <p><label for="profile-institution">Institution</label> <input id="profile-institution" maxlength="200"></p>
+          <div class="institution-field"><label for="profile-institution">Institution</label> <input id="profile-institution" maxlength="200"><div id="profile-institution-picker"></div></div>
           <button type="submit">Save profile</button>
         </form>
       </details>
@@ -58,7 +58,7 @@
         <p>Create your researcher profile first so you appear as a member of your lab.</p>
         <form id="lab-create">
           <p><label for="lab-name">Lab name</label> <input id="lab-name" required maxlength="200"></p>
-          <p><label for="lab-institution">Institution</label> <input id="lab-institution" required maxlength="200"></p>
+          <div class="institution-field"><label for="lab-institution">Institution</label> <input id="lab-institution" required maxlength="200"><div id="lab-institution-picker"></div></div>
           <p><label for="lab-about">Description</label> <textarea id="lab-about" maxlength="2000"></textarea></p>
           <p><label for="lab-email">Contact email</label> <input id="lab-email" type="email" maxlength="254"></p>
           <button type="submit">Add lab</button>

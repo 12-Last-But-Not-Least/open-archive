@@ -36,7 +36,19 @@ test('two researchers create a lab, join, publish and update its public page', a
   async function profile(page, name) {
     await page.locator('#account summary').filter({hasText: 'Create or edit your researcher profile'}).click();
     await page.getByLabel('Your name', {exact: true}).fill(name);
-    await page.locator('#profile-institution').fill('Example University');
+    const institution = page.locator('#profile-institution');
+    if (name === 'Lab Owner') {
+      await institution.fill('UC San D');
+      await expect(page.getByRole('option', {name: 'University of California San Diego'})).toBeVisible();
+      await institution.press('ArrowDown');
+      await expect(institution).toHaveAttribute('aria-activedescendant', 'profile-institution-option-0');
+      await institution.press('Enter');
+      await expect(institution).toHaveValue('University of California San Diego');
+      await expect(institution).toHaveAttribute('aria-expanded', 'false');
+    } else {
+      await institution.fill('Example University');
+      await expect(page.getByRole('status').filter({hasText: 'No matches.'})).toBeVisible();
+    }
     await page.getByRole('button', {name: 'Save profile', exact: true}).click();
     await expect(page.locator('#status')).toHaveText('Profile saved.');
   }
@@ -50,7 +62,12 @@ test('two researchers create a lab, join, publish and update its public page', a
     // Valid single-word names must wrap in account, invitation, and public views.
     const labName = 'Bioinformatics'.repeat(10) + ' ' + info.project.name;
     await owner.getByLabel('Lab name', {exact: true}).fill(labName);
-    await owner.locator('#lab-institution').fill('Example University');
+    await owner.locator('#lab-institution').fill('Example Univ');
+    const labSuggestion = owner.getByRole('option', {name: 'Example University'});
+    await expect(labSuggestion).toBeVisible();
+    if (info.project.use.hasTouch) await labSuggestion.tap();
+    else await labSuggestion.click();
+    await expect(owner.locator('#lab-institution')).toHaveValue('Example University');
     await owner.getByLabel('Description', {exact: true}).fill('Research shared by our members.');
     await owner.getByRole('button', {name: 'Add lab', exact: true}).click();
     const labLink = owner.locator('#my-labs').getByRole('link', {name: labName});
@@ -101,7 +118,16 @@ test('two researchers create a lab, join, publish and update its public page', a
     await expect(labSection.getByLabel('Edit lab name')).toHaveValue(labName);
     const editedName = labName + ' Updated';
     await labSection.getByLabel('Edit lab name').fill(editedName);
-    await labSection.getByLabel('Edit institution').fill('Updated University');
+    const editInstitution = labSection.getByLabel('Edit institution');
+    await expect(editInstitution).toHaveValue('Example University');
+    await editInstitution.fill('UC San D');
+    await expect(labSection.getByRole('option', {name: 'University of California San Diego'})).toBeVisible();
+    await editInstitution.press('Escape');
+    await expect(editInstitution).toHaveValue('UC San D');
+    await expect(editInstitution).toHaveAttribute('aria-expanded', 'false');
+    await editInstitution.fill('Updated University');
+    await expect(labSection.getByRole('status')).toContainText('Suggestions unavailable.');
+    await expect(editInstitution).toHaveValue('Updated University');
     await labSection.getByLabel('Edit description').fill('Updated lab research.');
     await labSection.getByLabel('Edit contact email').fill('lab@example.org');
     await labSection.getByRole('button', {name: 'Save lab details'}).click();

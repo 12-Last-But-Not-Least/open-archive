@@ -46,3 +46,7 @@ After installing Python requirements and `npm ci`, run `npx playwright install c
 This test drives the real application UI and backend using three independent browser sessions (owner, invited member, anonymous visitor). It exercises login callbacks, profile creation, lab creation, invitation persistence across sign-in, joining, publication writes, public feeds, reloads and leaving the lab. Only the upstream OAuth provider, search services and PDS are simulated; application API requests are not intercepted. Existing backend tests additionally verify persistence across application restart.
 
 The test server binds only to `127.0.0.1:8001`, uses a temporary database removed at shutdown, and is not included in the production container. It cannot verify live Bluesky authorization or third-party service availability; the real two-account smoke test above is still needed before the demo. Failure reports and traces are uploaded as `mvp-browser-report` in GitHub Actions.
+
+Institution suggestions in Account use the [Research Organization Registry (ROR)](https://ror.readme.io/docs/api-query).
+The lookup sends only the institution search text to ROR. You can always type and save another name.
+Selecting a suggestion does not verify anyone's affiliation.

@@ -40,6 +40,104 @@ async function api(path, method = "GET", body) {
   return data;
 }
 
+// Suggestions never change the input until the user chooses one. The form
+// still saves the text value, whether it came from ROR or was typed manually.
+function institutionPicker(input, box, id) {
+  const list = node("ul");
+  const feedback = node("p");
+  const hint = node("p", "Suggestions from ROR. You can also type the name yourself.");
+  list.id = id + "-options";
+  list.className = "institution-options";
+  list.hidden = true;
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "Institution suggestions");
+  feedback.className = hint.className = "note";
+  feedback.setAttribute("role", "status");
+  hint.id = id + "-hint";
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-controls", list.id);
+  input.setAttribute("aria-describedby", hint.id);
+  input.setAttribute("autocomplete", "off");
+  box.className = "institution-picker";
+  box.append(hint, list, feedback);
+
+  let timer, generation = 0, rows = [], active = -1;
+  function close(clearFeedback = true) {
+    if (timer !== undefined) clearTimeout(timer);
+    generation++;
+    rows = [];
+    active = -1;
+    list.replaceChildren();
+    list.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+    if (clearFeedback) feedback.textContent = "";
+  }
+
+  function select(row) {
+    input.value = row.textContent;
+    close();
+  }
+
+  function search(event) {
+    close();
+    const query = input.value.trim().replace(/\s+/g, " ");
+    if (event.isComposing || query.length > 80 || /@|:\/\//.test(query) ||
+        (query.match(/[\p{L}\p{N}]/gu) || []).length < 3) return;
+    const requested = generation;
+    timer = setTimeout(async () => {
+      try {
+        const {institutions} = await api("/api/institutions/search", "POST", {query});
+        if (requested !== generation) return;
+        for (const name of institutions) {
+          const row = node("li", name);
+          row.id = id + "-option-" + rows.length;
+          row.setAttribute("role", "option");
+          row.setAttribute("aria-selected", "false");
+          // Keep focus in the input until a pointer selection is finished.
+          row.addEventListener("pointerdown", event => event.preventDefault());
+          row.addEventListener("click", () => select(row));
+          rows.push(row);
+          list.append(row);
+        }
+        if (!rows.length) {
+          feedback.textContent = "No matches. You can keep the name you typed.";
+          return;
+        }
+        list.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+        feedback.textContent = rows.length + (rows.length === 1 ? " suggestion." : " suggestions.");
+      } catch {
+        if (requested === generation) feedback.textContent = "Suggestions unavailable. You can keep the name you typed.";
+      }
+    }, 300);
+  }
+  input.addEventListener("input", search);
+  input.addEventListener("compositionend", search);
+  // Preserve the feedback height on blur so clicking Save does not shift the button.
+  input.addEventListener("blur", () => close(false));
+  input.addEventListener("keydown", event => {
+    if (event.isComposing) return;
+    if (event.key === "Escape") {
+      if (!list.hidden) event.preventDefault();
+      close();
+    } else if (event.key === "Enter" && active >= 0) {
+      event.preventDefault();
+      select(rows[active]);
+    } else if (rows.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      if (active >= 0) rows[active].setAttribute("aria-selected", "false");
+      active = active < 0 ? (event.key === "ArrowDown" ? 0 : rows.length - 1) :
+        Math.max(0, Math.min(rows.length - 1, active + (event.key === "ArrowDown" ? 1 : -1)));
+      rows[active].setAttribute("aria-selected", "true");
+      input.setAttribute("aria-activedescendant", rows[active].id);
+      rows[active].scrollIntoView({block: "nearest"});
+    }
+  });
+}
+
 function showOrcid() {
   $("#orcid-form").hidden = !session?.researcher;
   $("#orcid").value = session?.researcher?.orcid || "";
@@ -462,6 +560,7 @@ async function renderInvitation() {
   target.append(dismiss);
 }
 
+let labEditorCount = 0;
 function labEditor(lab) {
   const details = node("details");
   details.append(node("summary", "Edit lab details"));
@@ -473,7 +572,7 @@ function labEditor(lab) {
     ["about", "Edit description", "textarea", 2000, false],
     ["contactEmail", "Edit contact email", "email", 254, false],
   ]) {
-    const row = node("p");
+    const row = node(key === "institution" ? "div" : "p");
     const caption = node("label", label + " ");
     const input = node(type === "textarea" ? "textarea" : "input");
     if (type !== "textarea") input.type = type;
@@ -483,6 +582,12 @@ function labEditor(lab) {
     if (required) input.minLength = 2;
     caption.append(input);
     row.append(caption);
+    if (key === "institution") {
+      const box = node("div");
+      row.className = "institution-field";
+      row.append(box);
+      institutionPicker(input, box, "edit-institution-" + (++labEditorCount));
+    }
     form.append(row);
     fields[key] = input;
   }
@@ -565,3 +670,7 @@ $("#profile-edit").addEventListener("submit", event => {
     status("Profile saved.");
   });
 });
+
+for (const id of ["profile-institution", "lab-institution"]) {
+  institutionPicker($("#" + id), $("#" + id + "-picker"), id);
+}

@@ -11,12 +11,14 @@ from html import escape
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .institutions import search_institutions
 from .oauth import client_metadata, make_client
 from .network import get_json
 from .papers import COLLECTION, ArxivSearch, list_papers, make_record, paper_key, paper_keys, record_key, xrpc
@@ -47,6 +49,10 @@ def entry_detail(entry, shared):
 
 class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class InstitutionQuery(Input):
+    query: str = Field(min_length=3, max_length=80)
 
 
 class Login(Input):
@@ -201,7 +207,7 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
 
     @app.middleware("http")
     async def security(request, call_next):
-        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10, "/api/papers/search": 10, "/api/labs": 10, "/api/profile": 20, "/api/profile/author": 20, "/api/profile/orcid": 20}
+        limits = {"/api/session": 60, "/auth/login": 10, "/api/arxiv/search": 10, "/api/doi/lookup": 10, "/api/papers/search": 10, "/api/institutions/search": 60, "/api/labs": 10, "/api/profile": 20, "/api/profile/author": 20, "/api/profile/orcid": 20}
         if request.url.path in limits and not rate_limit(request, limits[request.url.path]):
             return JSONResponse({"detail": "Too many requests. Try again in a minute."}, status_code=429,
                                 headers={"Retry-After": "60"})
@@ -619,6 +625,17 @@ def create_app(*, directory=None, origin=None, oauth_factory=make_client, search
             except Exception:
                 raise HTTPException(502, "Could not remove the paper from your PDS.") from None
         return {"ok": True}
+
+    @app.post("/api/institutions/search")
+    async def institution_search(payload: InstitutionQuery, request: Request):
+        await authenticated(request)
+        query = " ".join(payload.query.split())
+        if sum(char.isalnum() for char in query) < 3 or "@" in query or "://" in query:
+            return {"institutions": []}
+        try:
+            return {"institutions": await search_institutions(query)}
+        except (httpx.HTTPError, ValueError):
+            raise HTTPException(503, "Institution suggestions are unavailable. You can type the name yourself.") from None
 
     @app.get("/data/site.json")
     async def site_config():
