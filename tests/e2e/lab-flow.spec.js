@@ -69,7 +69,20 @@ test('two researchers create a lab, join, publish and update its public page', a
     await member.getByRole('button', {name: 'Continue', exact: true}).click();
     await expect(member.getByLabel('ATProto handle')).toBeFocused();
     await signIn(member, 'member.bsky.social');
-    await profile(member, 'Lab Member');
+    const addPapers = member.getByRole('button', {name: 'Add selected papers', exact: true});
+    const nameGuidance = member.locator('#paper-profile-guidance');
+    await expect(nameGuidance).toContainText('Save a researcher name before adding papers.');
+    await member.getByLabel('Author or paper').fill('Lab Member');
+    await member.getByRole('button', {name: 'Find papers', exact: true}).click();
+    await member.getByRole('checkbox', {name: 'Shared lab research'}).check();
+    await expect(addPapers).toBeDisabled();
+    await nameGuidance.getByRole('link', {name: 'Set your researcher name'}).click();
+    await expect(member.getByLabel('Your name', {exact: true})).toBeFocused();
+    await member.getByLabel('Your name', {exact: true}).fill('Lab Member');
+    await member.locator('#profile-institution').fill('Example University');
+    await member.getByRole('button', {name: 'Save profile', exact: true}).click();
+    await expect(member.locator('#status')).toHaveText('Profile saved.');
+    await expect(nameGuidance).toBeHidden();
     await member.getByRole('button', {name: 'Join lab', exact: true}).click();
     await expect(member.locator('#status')).toHaveText('Joined ' + labName + '.');
     await expect(member.locator('#lab-invitation')).toBeHidden();
@@ -130,10 +143,13 @@ test('two researchers create a lab, join, publish and update its public page', a
     await expect(visitor.locator('#publication-list')).toContainText('No publications added yet.');
     await visitor.goto(profileURL);
     await expect(visitor.locator('#publication-list')).toContainText('Shared lab research');
-    // Clean up the simulated PDS for the next viewport's independent run.
+    // Clean up the member account so the next viewport starts without a profile or papers.
     member.once('dialog', dialog => dialog.accept());
     await member.locator('#own-papers').getByRole('button', {name: 'Remove', exact: true}).click();
     await expect(member.locator('#own-papers')).not.toContainText('Shared lab research');
+    member.once('dialog', dialog => dialog.accept());
+    await member.getByRole('button', {name: 'Remove researcher profile', exact: true}).click();
+    await expect(nameGuidance).toBeVisible();
     expect(errors).toEqual([]);
     expect(unexpected).toEqual([]);
   } finally {
